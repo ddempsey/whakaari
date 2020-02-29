@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+models/
+features/
+predictions/
+plots/
+_tmp/
+.vscode/
