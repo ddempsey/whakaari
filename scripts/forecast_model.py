@@ -82,9 +82,9 @@ def forecast_now():
     
     # forecast the last 7 days at high resolution
     fm.hires_forecast(ti=fm.data.tf - 7*day, tf=fm.data.tf, recalculate=True, 
-        save='current_forecast.png')  
+        save='current_forecast.png', nztimezone=True)  
 
 if __name__ == "__main__":
-    forecast_dec2019()
-    #forecast_now()
+    #forecast_dec2019()
+    forecast_now()
     
