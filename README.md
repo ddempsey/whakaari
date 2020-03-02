@@ -25,10 +25,8 @@ trains on tremor data between 2011 and 2020 but *excluding* a two month period e
 Dec 2019 eruption. It then constructs a model 'forecast' of this event.
 
 The second, ```forecast_now()```, is an online forecaster. It trains a model on all data between 2011 and 2020
-*including* the Dec 2019 eruption. It then downloads the latest Whakaari tremor data from GeoNet and provides
-constructs a forecast for the next 48 hours. See associated paper for guidance on interpreting model consensus
-levels. Note, the eruption model gives all times in UTC - for NZ dates and times, you need to add 12 or 13 hours 
-(depending on daylight savings).
+*including* the Dec 2019 eruption. It then downloads the latest Whakaari tremor data from GeoNet and constructs a forecast for the next 48 hours. See associated paper for guidance on interpreting model consensus
+levels.
 
 To run the models, open ```forecast_model.py```, comment/uncomment the forecasts you want to run, then in a 
 terminal type

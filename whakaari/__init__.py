@@ -1144,7 +1144,7 @@ class ForecastModel(object):
             gc.collect()
 
         return forecast
-    def hires_forecast(self, ti, tf, recalculate=True, save=None, root=None):
+    def hires_forecast(self, ti, tf, recalculate=True, save=None, root=None, nztimezone=False):
         """ Construct forecast at resolution of data.
 
             Parameters:
@@ -1160,7 +1160,8 @@ class ForecastModel(object):
                 If given, plot forecast and save to filename.
             root : None or str
                 Naming convention for saving feature matrix.
-
+            nztimezone : bool
+                Flag to plot forecast using NZ time zone instead of UTC.
             Notes:
             ------
             Requires model to have already been trained.
@@ -1188,7 +1189,7 @@ class ForecastModel(object):
         if save is None:
             return
 
-        self._plot_hires_forecast(ys, save, 0.8)
+        self._plot_hires_forecast(ys, save, 0.8, nztimezone=nztimezone)
     # plotting methods
     def plot_forecast(self, ys, threshold=0.75, save=None, xlim=['2019-12-01','2020-02-01']):
         """ Plot model forecast.
@@ -1201,6 +1202,8 @@ class ForecastModel(object):
                 Threshold consensus to declare alert.
             save : str
                 File name to save figure.
+            local_time : bool
+                If True, switches plotting to local time (default is UTC).
         """
         makedir(self.plotdir)
         if save is None:
@@ -1270,7 +1273,7 @@ class ForecastModel(object):
         
         plt.savefig(save, dpi=400)
         plt.close(f)
-    def _plot_hires_forecast(self, ys, save, threshold=0.75):
+    def _plot_hires_forecast(self, ys, save, threshold=0.75, nztimezone=False):
         """ Plot model hires version of model forecast (single axes).
 
             Parameters:
@@ -1284,33 +1287,52 @@ class ForecastModel(object):
         """
         makedir(self.plotdir)
         # set up figures and axes
-        f = plt.figure(figsize=(12,6))
-        ax = plt.axes([0.10, 0.1, 0.8, 0.8])
+        f = plt.figure(figsize=(8,8))
+        ax1 = plt.axes([0.1, 0.57, 0.8, 0.4])
+        ax2 = plt.axes([0.1, 0.08, 0.8, 0.4])
         t = pd.to_datetime(ys.index.values)
+        if nztimezone:
+            t = to_nztimezone(t)
+            ax2.set_xlabel('Local time')
+        else:
+            ax2.set_xlabel('UTC')
         y = np.mean(np.array([ys[col] for col in ys.columns]), axis=0)
-        ax.set_xlim([t[0], t[-1]])
-        ax.set_ylim([-0.05, 1.05])
-        ax.set_yticks([0,0.25,0.5, 0.75, 1.0])
-        ax.set_ylabel('alert level')
-    
-        # consensus threshold
-        ax.axhline(threshold, color='k', linestyle=':', label='alert threshold', zorder=4)
-
-        # modelled alert
-        ax.plot(t, y, 'c-', label='modelled alert', zorder=4)
-
-        # eruptions
-        for te in self.data.tes:
-            ax.axvline(te, color='k', linestyle='-', zorder=5)
-        ax.axvline(te, color='k', linestyle='-', label='eruption')
-
-        for tii,yi in zip(t, y):
-            if yi > threshold:
-                ax.fill_between([tii, tii+self.dtf], [0,0], [1,1], color='y', zorder=3)
-                
-        ax.fill_between([], [], [], color='y', label='eruption forecast')
-        ax.legend()
         
+        ax2.set_xlim([t[-1]-timedelta(days=1), t[-1]])
+        ax1.set_xlim([t[0], t[-1]])
+        for ax in [ax1,ax2]:
+            ax.set_ylim([-5, 105])
+            ax.set_yticks([0,25,50,75,100])
+            ax.set_ylabel('eruption consensus')
+        
+            # consensus threshold
+            ax.axhline(threshold*100, color='k', linestyle=':', label='alert threshold', zorder=4)
+
+            # modelled alert
+            ax.plot(t, y*100, 'c-', label='eruption consensus', zorder=4)
+
+            for tii,yi in zip(t, y):
+                if yi > threshold:
+                    ax.fill_between([tii, tii+self.dtf], [0,0], [100,100], color='y', zorder=3)
+                    
+            ax.fill_between([], [], [], color='y', label='eruption forecast')
+        ax1.legend()
+        
+        tf = t[-1]
+        t0 = tf.replace(hour=0, minute=0, second=0)
+        xts = [t0 - timedelta(days=i) for i in range(7)][::-1]
+        lxts = [xt.strftime('%d %b') for xt in xts]
+        ax1.set_xticks(xts)
+        ax1.set_xticklabels(lxts)
+        ax2.text(0.025, 0.95, t0.strftime('%d %b %Y'), size = 12, ha = 'left', 
+            va = 'top', transform=ax2.transAxes)
+        
+        t0 = tf.replace(hour=tf.hour - tf.hour%2, minute=0, second=0)
+        xts = [t0 - timedelta(days=i/12) for i in range(12)][::-1]
+        lxts = [xt.strftime('%H:00') for xt in xts]
+        ax2.set_xticks(xts)
+        ax2.set_xticklabels(lxts)
+
         plt.savefig(save, dpi=400)
         plt.close(f)
     def plot_accuracy(self, ys, save=None):
@@ -1747,6 +1769,14 @@ def datetimeify(t):
         except ValueError:
             pass
     raise ValueError("time data '{:s}' not a recognized format".format(t))
+
+def to_nztimezone(t):
+    """ Routine to convert UTC to NZ time zone.
+    """
+    from dateutil import tz
+    utctz = tz.gettz('UTC')
+    nztz = tz.gettz('Pacific/Auckland')
+    return [ti.replace(tzinfo=utctz).astimezone(nztz) for ti in pd.to_datetime(t)]
 
 def makedir(dirname):
     """ Make directory if not existing.
