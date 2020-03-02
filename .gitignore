@@ -4,5 +4,7 @@ models/
 features/
 predictions/
 plots/
+controller/
 _tmp/
 .vscode/
+*.png

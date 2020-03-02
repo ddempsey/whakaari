@@ -1144,7 +1144,7 @@ class ForecastModel(object):
             gc.collect()
 
         return forecast
-    def hires_forecast(self, ti, tf, recalculate=True, save=None, root=None, nztimezone=False):
+    def hires_forecast(self, ti, tf, recalculate=True, save=None, root=None, nztimezone=False, save_alerts=None):
         """ Construct forecast at resolution of data.
 
             Parameters:
@@ -1186,6 +1186,16 @@ class ForecastModel(object):
         # predict on hires features
         ys = _fm.forecast(ti, tf, recalculate, use_model=self.modeldir)
 
+        if save_alerts is not None:
+            tf = datetime.utcnow()
+            al = (ys['consensus'].values[ys.index>(tf-self.dtf)] > 0.8)*1.
+            if len(al) == 0:
+                in_alert = -1
+            else:
+                in_alert = int(np.max(al))
+            with open(save_alerts, 'w') as fp:                
+                fp.write('{:d}\n'.format(in_alert))
+        
         if save is None:
             return
 
@@ -1289,7 +1299,7 @@ class ForecastModel(object):
         # set up figures and axes
         f = plt.figure(figsize=(8,8))
         ax1 = plt.axes([0.1, 0.57, 0.8, 0.4])
-        ax2 = plt.axes([0.1, 0.08, 0.8, 0.4])
+        ax2 = plt.axes([0.1, 0.09, 0.8, 0.4])
         t = pd.to_datetime(ys.index.values)
         if nztimezone:
             t = to_nztimezone(t)
