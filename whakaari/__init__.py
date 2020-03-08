@@ -957,7 +957,7 @@ class ForecastModel(object):
             drop_features : list
                 Names of tsfresh features to be dropped prior to training (for manual elimination of 
                 feature correlation.)
-            n_jobs : 1
+            n_jobs : int
                 CPUs to use when training classifiers in parallel.
             exclude_dates : list
                 List of time windows to exclude during training. Facilitates dropping of eruption 
@@ -1144,7 +1144,8 @@ class ForecastModel(object):
             gc.collect()
 
         return forecast
-    def hires_forecast(self, ti, tf, recalculate=True, save=None, root=None, nztimezone=False, save_alerts=None):
+    def hires_forecast(self, ti, tf, recalculate=True, save=None, root=None, nztimezone=False, 
+        save_alerts=None, n_jobs=6):
         """ Construct forecast at resolution of data.
 
             Parameters:
@@ -1161,7 +1162,9 @@ class ForecastModel(object):
             root : None or str
                 Naming convention for saving feature matrix.
             nztimezone : bool
-                Flag to plot forecast using NZ time zone instead of UTC.
+                Flag to plot forecast using NZ time zone instead of UTC.            
+            n_jobs : int
+                CPUs to use when forecasting in parallel.
             Notes:
             ------
             Requires model to have already been trained.
