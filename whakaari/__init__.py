@@ -61,6 +61,8 @@ all_classifiers = ["SVM","KNN",'DT','RF','NN','NB','LR']
 _MONTH = timedelta(days=365.25/12)
 _DAY = timedelta(days=1.)
 
+makedir = lambda name: os.makedirs(name, exist_ok=True)
+
 class TremorData(object):
     """ Object to manage acquisition and processing of seismic data.
         
@@ -169,8 +171,8 @@ class TremorData(object):
         """
         if failedobspyimport:
             raise ImportError('ObsPy import failed, cannot update data.')
-        if not os.path.isdir('_tmp'):
-            os.makedirs('_tmp')
+
+        makedir('_tmp')
 
         # default data range if not given 
         if ti is None:
@@ -1790,14 +1792,3 @@ def to_nztimezone(t):
     utctz = tz.gettz('UTC')
     nztz = tz.gettz('Pacific/Auckland')
     return [ti.replace(tzinfo=utctz).astimezone(nztz) for ti in pd.to_datetime(t)]
-
-def makedir(dirname):
-    """ Make directory if not existing.
-
-        Parameters:
-        -----------
-        dirname : str
-            Name of directory to create.
-    """
-    if not os.path.isdir(dirname):
-        os.makedirs(dirname)
