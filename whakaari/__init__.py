@@ -357,7 +357,7 @@ class ForecastModel(object):
         iw : int
             Number of samples in window.
         io : int
-            Number of samples in non-overlapping section of window.
+            Number of samples in overlapping section of window.
         ti_model : datetime.datetime
             Beginning of model analysis period.
         tf_model : datetime.datetime
@@ -1123,7 +1123,6 @@ class ForecastModel(object):
                 mapper = map
             f = partial(predict_one_model, fM, model_path, pref)
 
-            mapper = map
             # train models with glorious progress bar
             for i, y in enumerate(mapper(f, run_predictions)):
                 cf = (i+1)/len(run_predictions)
