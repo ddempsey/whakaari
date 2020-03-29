@@ -442,7 +442,7 @@ class ForecastModel(object):
         self.data_streams = data_streams
         self.data = TremorData()
         if any(['_' in ds for ds in data_streams]):
-            self.data.df._compute_transforms()
+            self.data._compute_transforms()
         if any([d not in self.data.df.columns for d in self.data_streams]):
             raise ValueError("data restricted to any of {}".format(self.data.df.columns))
         if ti is None: ti = self.data.ti
