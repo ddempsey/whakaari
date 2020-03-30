@@ -196,7 +196,7 @@ class TremorData(object):
         if not self.exists:
             shutil.copyfile('_tmp/_tmp_fl_00000.dat',self.file)
             self.exists = True
-            os.remove('_tmp/_tmp_fl_00000.dat')
+            shutil.rmtree('_tmp')
             return
 
         # read temporary files in as dataframes for concatenation with existing data
