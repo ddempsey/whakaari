@@ -225,6 +225,8 @@ class TremorData(object):
             self.df['dsar'][ind] = 0.5*(self.df['dsar'][ind-1]+self.df['dsar'][ind+1])
 
         self.df.to_csv(self.file, index=True)
+        self.ti = self.df.index[0]
+        self.tf = self.df.index[-1]
     def get_data(self, ti=None, tf=None):
         """ Return tremor data in requested date range.
 
