@@ -56,7 +56,7 @@ from sklearn.naive_bayes import GaussianNB
 from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
 
-datas = ['rsam','vlf','lf','mf','hf','dsar']
+datas = ['rsam','mf','hf','dsar']
 all_classifiers = ["SVM","KNN",'DT','RF','NN','NB','LR']
 _MONTH = timedelta(days=365.25/12)
 _DAY = timedelta(days=1.)
@@ -182,6 +182,12 @@ class TremorData(object):
             tf = date.today() + _DAY
             tf = UTCDateTime("{:d}-{:02d}-{:02d} 00:00:00".format(tf.year, tf.month, tf.day))
         
+        if ti is not UTCDateTime:
+            ti = UTCDateTime(ti)
+        
+        if tf is not UTCDateTime:
+            tf = UTCDateTime(tf)
+
         daysec = 24*3600
         ndays = int((tf-ti)/daysec)
 
