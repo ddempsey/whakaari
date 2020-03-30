@@ -61,6 +61,8 @@ all_classifiers = ["SVM","KNN",'DT','RF','NN','NB','LR']
 _MONTH = timedelta(days=365.25/12)
 _DAY = timedelta(days=1.)
 
+makedir = lambda name: os.makedirs(name, exist_ok=True)
+
 class TremorData(object):
     """ Object to manage acquisition and processing of seismic data.
         
@@ -169,8 +171,8 @@ class TremorData(object):
         """
         if failedobspyimport:
             raise ImportError('ObsPy import failed, cannot update data.')
-        if not os.path.isdir('_tmp'):
-            os.makedirs('_tmp')
+
+        makedir('_tmp')
 
         # default data range if not given 
         if ti is None:
@@ -194,7 +196,6 @@ class TremorData(object):
         if not self.exists:
             shutil.copyfile('_tmp/_tmp_fl_00000.dat',self.file)
             self.exists = True
-            os.remove('_tmp/_tmp_fl_00000.dat')
             shutil.rmtree('_tmp')
             return
 
@@ -205,7 +206,6 @@ class TremorData(object):
             if not os.path.isfile(fl): 
                 continue
             dfs.append(pd.read_csv(fl, index_col=0, parse_dates=[0,], infer_datetime_format=True))
-            os.remove(fl)
         shutil.rmtree('_tmp')
         self.df = pd.concat(dfs)
 
@@ -355,7 +355,7 @@ class ForecastModel(object):
         iw : int
             Number of samples in window.
         io : int
-            Number of samples in non-overlapping section of window.
+            Number of samples in overlapping section of window.
         ti_model : datetime.datetime
             Beginning of model analysis period.
         tf_model : datetime.datetime
@@ -442,7 +442,7 @@ class ForecastModel(object):
         self.data_streams = data_streams
         self.data = TremorData()
         if any(['_' in ds for ds in data_streams]):
-            self.data.df._compute_transforms()
+            self.data._compute_transforms()
         if any([d not in self.data.df.columns for d in self.data_streams]):
             raise ValueError("data restricted to any of {}".format(self.data.df.columns))
         if ti is None: ti = self.data.ti
@@ -1121,7 +1121,6 @@ class ForecastModel(object):
                 mapper = map
             f = partial(predict_one_model, fM, model_path, pref)
 
-            mapper = map
             # train models with glorious progress bar
             for i, y in enumerate(mapper(f, run_predictions)):
                 cf = (i+1)/len(run_predictions)
@@ -1790,14 +1789,3 @@ def to_nztimezone(t):
     utctz = tz.gettz('UTC')
     nztz = tz.gettz('Pacific/Auckland')
     return [ti.replace(tzinfo=utctz).astimezone(nztz) for ti in pd.to_datetime(t)]
-
-def makedir(dirname):
-    """ Make directory if not existing.
-
-        Parameters:
-        -----------
-        dirname : str
-            Name of directory to create.
-    """
-    if not os.path.isdir(dirname):
-        os.makedirs(dirname)
