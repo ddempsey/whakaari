@@ -182,10 +182,10 @@ class TremorData(object):
             tf = date.today() + _DAY
             tf = UTCDateTime("{:d}-{:02d}-{:02d} 00:00:00".format(tf.year, tf.month, tf.day))
         
-        if ti is not UTCDateTime:
+        if type(ti) is not UTCDateTime:
             ti = UTCDateTime(ti)
         
-        if tf is not UTCDateTime:
+        if type(tf) is not UTCDateTime:
             tf = UTCDateTime(tf)
 
         daysec = 24*3600
