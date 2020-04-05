@@ -103,8 +103,8 @@ class TremorData(object):
         # check if data file exists
         self.exists = os.path.isfile(self.file)
         if not self.exists:
-            t0 = UTCDateTime("2011-01-01 00:00:00")
-            t1 = UTCDateTime("2011-01-02 00:00:00")
+            t0 = datetime(2011,1,1)
+            t1 = datetime(2011,1,2)
             self.update(t0,t1)
         # check date of latest data in file
         self.df = pd.read_csv(self.file, index_col=0, parse_dates=[0,], infer_datetime_format=True)
