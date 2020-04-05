@@ -175,21 +175,13 @@ class TremorData(object):
         makedir('_tmp')
 
         # default data range if not given 
-        if ti is None:
-            ti = UTCDateTime("{:d}-{:02d}-{:02d} 00:00:00".format(self.tf.year, self.tf.month, self.tf.day))
-
-        if tf is None:
-            tf = date.today() + _DAY
-            tf = UTCDateTime("{:d}-{:02d}-{:02d} 00:00:00".format(tf.year, tf.month, tf.day))
+        ti = ti or datetime(self.tf.year,self.tf.month,self.tf.day,0,0,0)
+        tf = tf or datetime.today() + _DAY
         
-        if type(ti) is not UTCDateTime:
-            ti = UTCDateTime(ti)
-        
-        if type(tf) is not UTCDateTime:
-            tf = UTCDateTime(tf)
+        ti = datetimeify(ti)
+        tf = datetimeify(tf)
 
-        daysec = 24*3600
-        ndays = int((tf-ti)/daysec)
+        ndays = (tf-ti).days
 
         # parallel data collection - creates temporary files in ./_tmp
         pars = [[i,ti] for i in range(ndays)]
@@ -1645,6 +1637,8 @@ def get_data_for_day(i,t0):
             Initial date of data download period.
         
     """
+    t0 = UTCDateTime(t0)
+
     # open clients
     client = FDSNClient("GEONET")
     client_nrt = FDSNClient('https://service-nrt.geonet.org.nz')
