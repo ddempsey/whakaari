@@ -56,7 +56,7 @@ from sklearn.naive_bayes import GaussianNB
 from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
 
-datas = ['rsam','vlf','lf','mf','hf','dsar']
+datas = ['rsam','mf','hf','dsar']
 all_classifiers = ["SVM","KNN",'DT','RF','NN','NB','LR']
 _MONTH = timedelta(days=365.25/12)
 _DAY = timedelta(days=1.)
@@ -103,8 +103,8 @@ class TremorData(object):
         # check if data file exists
         self.exists = os.path.isfile(self.file)
         if not self.exists:
-            t0 = UTCDateTime("2011-01-01 00:00:00")
-            t1 = UTCDateTime("2011-01-02 00:00:00")
+            t0 = datetime(2011,1,1)
+            t1 = datetime(2011,1,2)
             self.update(t0,t1)
         # check date of latest data in file
         self.df = pd.read_csv(self.file, index_col=0, parse_dates=[0,], infer_datetime_format=True)
@@ -175,15 +175,13 @@ class TremorData(object):
         makedir('_tmp')
 
         # default data range if not given 
-        if ti is None:
-            ti = UTCDateTime("{:d}-{:02d}-{:02d} 00:00:00".format(self.tf.year, self.tf.month, self.tf.day))
-
-        if tf is None:
-            tf = date.today() + _DAY
-            tf = UTCDateTime("{:d}-{:02d}-{:02d} 00:00:00".format(tf.year, tf.month, tf.day))
+        ti = ti or datetime(self.tf.year,self.tf.month,self.tf.day,0,0,0)
+        tf = tf or datetime.today() + _DAY
         
-        daysec = 24*3600
-        ndays = int((tf-ti)/daysec)
+        ti = datetimeify(ti)
+        tf = datetimeify(tf)
+
+        ndays = (tf-ti).days
 
         # parallel data collection - creates temporary files in ./_tmp
         pars = [[i,ti] for i in range(ndays)]
@@ -219,6 +217,8 @@ class TremorData(object):
             self.df['dsar'][ind] = 0.5*(self.df['dsar'][ind-1]+self.df['dsar'][ind+1])
 
         self.df.to_csv(self.file, index=True)
+        self.ti = self.df.index[0]
+        self.tf = self.df.index[-1]
     def get_data(self, ti=None, tf=None):
         """ Return tremor data in requested date range.
 
@@ -1637,6 +1637,8 @@ def get_data_for_day(i,t0):
             Initial date of data download period.
         
     """
+    t0 = UTCDateTime(t0)
+
     # open clients
     client = FDSNClient("GEONET")
     client_nrt = FDSNClient('https://service-nrt.geonet.org.nz')
