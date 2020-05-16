@@ -1367,8 +1367,8 @@ class ForecastModel(object):
         
         # time series
         t = ys.index
-        
-        self._ys = np.array([self.data._is_eruption_in(days=self.look_forward, from_time=ti) for ti in pd.to_datetime(ys.index)])
+
+        self.get_forecast_target(ys)
         thresholds = np.linspace(0.0,1.0,101)
         ialert = self.look_forward/((1-self.overlap)*self.window)
         dti = timedelta(days=(1-self.overlap)*self.window)
@@ -1425,6 +1425,11 @@ class ForecastModel(object):
         
         plt.savefig(save, dpi=300)
         plt.close(f)
+
+    def get_forecast_target(self, ys):
+        self._ys = np.array(
+            [self.data._is_eruption_in(days=self.look_forward, from_time=ti) for ti in pd.to_datetime(ys.index)])
+
     def plot_features(self, N=10, save=None):
         """ Plot frequency of extracted features by most significant.
 
