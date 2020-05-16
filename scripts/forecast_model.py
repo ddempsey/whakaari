@@ -18,31 +18,7 @@ warnings.filterwarnings("ignore", category=FitFailedWarning)
 def forecast_dec2019():
     ''' forecast model for Dec 2019 eruption
     '''
-    # constants
-    month = timedelta(days=365.25/12)
-    day = timedelta(days=1)
-    td = TremorData()
-        
-    # construct model object
-    data_streams = ['rsam','mf','hf','dsar']
-    fm = ForecastModel(ti='2011-01-01', tf='2020-01-01', window=2., overlap=0.75, 
-        look_forward=2., data_streams=data_streams)
-    
-    # columns to manually drop from feature matrix because they are highly correlated to other 
-    # linear regressors
-    drop_features = ['linear_trend_timewise','agg_linear_trend']
-    
-    # train the model, excluding 2019 eruption
-    # note: building the feature matrix may take several hours, but only has to be done once 
-    # and will intermittantly save progress in ../features/
-    # trained scikit-learn models will be saved to ../models/*root*/
-    te = td.tes[-1]
-    fm.train(ti='2011-01-01', tf='2020-01-01', drop_features=drop_features, retrain=True, 
-        exclude_dates=[[te-month,te+month],])      
-
-    # run forecast from 2011 to 2020
-    # model predictions will be saved to ../predictions/*root*/ 
-    ys = fm.forecast(ti='2011-01-01', tf='2020-01-01', recalculate=True)    
+    fm, month, te, ys = prepare_dec2019_forecast()
 
     # plot forecast and quality metrics
     # plots will be saved to ../plots/*root*/
@@ -54,6 +30,32 @@ def forecast_dec2019():
     # note: building the feature matrix might take a while
     fm.hires_forecast(ti=te-fm.dtw-fm.dtf, tf=te+month/30, recalculate=True, 
         save=r'{:s}/forecast_hires.png'.format(fm.plotdir))
+
+
+def prepare_dec2019_forecast(retrain=True):
+    # constants
+    month = timedelta(days=365.25 / 12)
+    day = timedelta(days=1)
+    td = TremorData()
+    # construct model object
+    data_streams = ['rsam', 'mf', 'hf', 'dsar']
+    fm = ForecastModel(ti='2011-01-01', tf='2020-01-01', window=2., overlap=0.75,
+                       look_forward=2., data_streams=data_streams)
+    # columns to manually drop from feature matrix because they are highly correlated to other
+    # linear regressors
+    drop_features = ['linear_trend_timewise', 'agg_linear_trend']
+    # train the model, excluding 2019 eruption
+    # note: building the feature matrix may take several hours, but only has to be done once
+    # and will intermittantly save progress in ../features/
+    # trained scikit-learn models will be saved to ../models/*root*/
+    te = td.tes[-1]
+    fm.train(ti='2011-01-01', tf='2020-01-01', drop_features=drop_features, retrain=retrain,
+             exclude_dates=[[te - month, te + month], ])
+    # run forecast from 2011 to 2020
+    # model predictions will be saved to ../predictions/*root*/
+    ys = fm.forecast(ti='2011-01-01', tf='2020-01-01', recalculate=True)
+    return fm, month, te, ys
+
 
 def forecast_now():
     ''' forecast model for present day 
