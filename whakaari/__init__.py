@@ -974,23 +974,13 @@ class ForecastModel(object):
             NB - Naive Bayes
             LR - Logistic Regression
         """
-        self.classifier = classifier
-        self.exclude_dates = exclude_dates
-        self.use_only_features = use_only_features
-        self.n_jobs = n_jobs
-        makedir(self.modeldir)
+        self.initialize_training(classifier, exclude_dates, n_jobs, tf, ti, use_only_features)
 
-        # initialise training interval
-        self.ti_train = self.ti_model if ti is None else datetimeify(ti)
-        self.tf_train = self.tf_model if tf is None else datetimeify(tf)
-        if self.ti_train - self.dtw < self.data.ti:
-            self.ti_train = self.data.ti+self.dtw
-        
         # check if any model training required
         if not retrain:
             run_models = False
-            pref = type(get_classifier(self.classifier)[0]).__name__ 
-            for i in range(Ncl):         
+            pref = type(get_classifier(self.classifier)[0]).__name__
+            for i in range(Ncl):
                 if not os.path.isfile('{:s}/{:s}_{:04d}.pkl'.format(self.modeldir, pref, i)):
                     run_models = True
             if not run_models:
@@ -999,27 +989,7 @@ class ForecastModel(object):
             # delete old model files
             _ = [os.remove(fl) for fl in  glob('{:s}/*'.format(self.modeldir))]
 
-        # get feature matrix and label vector
-        fM, ys = self._load_data(self.ti_train, self.tf_train)
-
-        # manually drop features (columns)
-        fM = self._drop_features(fM, drop_features)
-
-        # manually select features (columns)
-        if len(self.use_only_features) != 0:
-            use_only_features = [df for df in self.use_only_features if df in fM.columns]
-            fM = fM[use_only_features]
-            Nfts = len(use_only_features)+1
-
-        # manually drop windows (rows)
-        fM, ys = self._exclude_dates(fM, ys, exclude_dates)
-        if ys.shape[0] != fM.shape[0]:
-            raise ValueError("dimensions of feature matrix and label vector do not match")
-        
-        # select training subset
-        inds = (ys.index>=self.ti_train)&(ys.index<self.tf_train)
-        fM = fM.loc[inds]
-        ys = ys['label'].loc[inds]
+        Nfts, fM, ys = self.prepare_training_data(Nfts, drop_features, exclude_dates)
 
         # set up model training
         if self.n_jobs > 1:
@@ -1041,6 +1011,39 @@ class ForecastModel(object):
         del fM
         gc.collect()
         self._collect_features()
+
+    def prepare_training_data(self, Nfts, drop_features, exclude_dates):
+        # get feature matrix and label vector
+        fM, ys = self._load_data(self.ti_train, self.tf_train)
+        # manually drop features (columns)
+        fM = self._drop_features(fM, drop_features)
+        # manually select features (columns)
+        if len(self.use_only_features) != 0:
+            use_only_features = [df for df in self.use_only_features if df in fM.columns]
+            fM = fM[use_only_features]
+            Nfts = len(use_only_features) + 1
+        # manually drop windows (rows)
+        fM, ys = self._exclude_dates(fM, ys, exclude_dates)
+        if ys.shape[0] != fM.shape[0]:
+            raise ValueError("dimensions of feature matrix and label vector do not match")
+        # select training subset
+        inds = (ys.index >= self.ti_train) & (ys.index < self.tf_train)
+        fM = fM.loc[inds]
+        ys = ys['label'].loc[inds]
+        return Nfts, fM, ys
+
+    def initialize_training(self, classifier, exclude_dates, n_jobs, tf, ti, use_only_features):
+        self.classifier = classifier
+        self.exclude_dates = exclude_dates
+        self.use_only_features = use_only_features
+        self.n_jobs = n_jobs
+        makedir(self.modeldir)
+        # initialise training interval
+        self.ti_train = self.ti_model if ti is None else datetimeify(ti)
+        self.tf_train = self.tf_model if tf is None else datetimeify(tf)
+        if self.ti_train - self.dtw < self.data.ti:
+            self.ti_train = self.data.ti + self.dtw
+
     def forecast(self, ti=None, tf=None, recalculate=False, use_model=None, n_jobs=6):
         """ Use classifier models to forecast eruption likelihood.
 

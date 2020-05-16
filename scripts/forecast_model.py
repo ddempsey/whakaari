@@ -32,20 +32,17 @@ def forecast_dec2019():
     # linear regressors
     drop_features = ['linear_trend_timewise','agg_linear_trend']
     
-    # set the available CPUs higher or lower as appropriate
-    n_jobs = 6
-
     # train the model, excluding 2019 eruption
     # note: building the feature matrix may take several hours, but only has to be done once 
     # and will intermittantly save progress in ../features/
     # trained scikit-learn models will be saved to ../models/*root*/
     te = td.tes[-1]
     fm.train(ti='2011-01-01', tf='2020-01-01', drop_features=drop_features, retrain=True, 
-        exclude_dates=[[te-month,te+month],], n_jobs=n_jobs)      
+        exclude_dates=[[te-month,te+month],])      
 
     # run forecast from 2011 to 2020
     # model predictions will be saved to ../predictions/*root*/ 
-    ys = fm.forecast(ti='2011-01-01', tf='2020-01-01', recalculate=True, n_jobs=n_jobs)    
+    ys = fm.forecast(ti='2011-01-01', tf='2020-01-01', recalculate=True)    
 
     # plot forecast and quality metrics
     # plots will be saved to ../plots/*root*/
@@ -56,31 +53,7 @@ def forecast_dec2019():
     # construct a high resolution forecast (10 min updates) around the Dec 2019 eruption
     # note: building the feature matrix might take a while
     fm.hires_forecast(ti=te-fm.dtw-fm.dtf, tf=te+month/30, recalculate=True, 
-        save=r'{:s}/forecast_hires.png'.format(fm.plotdir), n_jobs=n_jobs)
-
-def forecast_test():
-    ''' test scale forecast model
-    '''
-    # constants
-    month = timedelta(days=365.25/12)
-        
-    # set up model
-    data_streams = ['rsam','mf','hf','dsar']
-    fm = ForecastModel(ti='2012-04-01', tf='2012-10-01', window=2., overlap=0.75, 
-        look_forward=2., data_streams=data_streams, root='test')
-    
-    # set the available CPUs higher or lower as appropriate
-    n_jobs = 6
-    
-    # train the model
-    drop_features = ['linear_trend_timewise','agg_linear_trend']
-    fm.train(ti='2012-04-01', tf='2012-10-01', drop_features=drop_features, retrain=True,
-        n_jobs=n_jobs)      
-
-    # plot a forecast for a future eruption
-    te = fm.data.tes[1]
-    fm.hires_forecast(ti=te-fm.dtw-fm.dtf, tf=te+month/30, recalculate=True, 
-        save=r'{:s}/forecast_Aug2013.png'.format(fm.plotdir), n_jobs=n_jobs)
+        save=r'{:s}/forecast_hires.png'.format(fm.plotdir))
 
 def forecast_now():
     ''' forecast model for present day 
@@ -98,9 +71,6 @@ def forecast_now():
     fm = ForecastModel(ti='2011-01-01', tf=td.tf, window=2, overlap=0.75,  
         look_forward=2, data_streams=data_streams, root='online_forecaster')
     
-    # set the available CPUs higher or lower as appropriate
-    n_jobs = 6
-    
     # The online forecaster is trained using all eruptions in the dataset. It only
     # needs to be trained once, or again after a new eruption.
     # (Hint: feature matrices can be copied from other models to avoid long recalculations
@@ -108,14 +78,13 @@ def forecast_now():
     # to *root*_features.csv)
     drop_features = ['linear_trend_timewise','agg_linear_trend']
     fm.train(ti='2011-01-01', tf='2020-01-01', drop_features=drop_features, 
-        retrain=False, n_jobs=n_jobs)      
+        retrain=False)      
     
     # forecast the last 7 days at high resolution
     fm.hires_forecast(ti=fm.data.tf - 7*day, tf=fm.data.tf, recalculate=True, 
-        save='current_forecast.png', nztimezone=True, n_jobs=n_jobs)  
+        save='current_forecast.png', nztimezone=True)  
 
 if __name__ == "__main__":
-    #forecast_dec2019()
-    forecast_test()
+    forecast_dec2019()
     #forecast_now()
     
