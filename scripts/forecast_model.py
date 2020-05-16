@@ -32,7 +32,7 @@ def forecast_dec2019():
         save=r'{:s}/forecast_hires.png'.format(fm.plotdir))
 
 
-def prepare_dec2019_forecast(retrain=True):
+def prepare_dec2019_forecast(retrain=True, recalculate=True):
     # constants
     month = timedelta(days=365.25 / 12)
     day = timedelta(days=1)
@@ -53,7 +53,7 @@ def prepare_dec2019_forecast(retrain=True):
              exclude_dates=[[te - month, te + month], ])
     # run forecast from 2011 to 2020
     # model predictions will be saved to ../predictions/*root*/
-    ys = fm.forecast(ti='2011-01-01', tf='2020-01-01', recalculate=True)
+    ys = fm.forecast(ti='2011-01-01', tf='2020-01-01', recalculate=recalculate)
     return fm, month, te, ys
 
 
