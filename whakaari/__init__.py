@@ -1201,10 +1201,11 @@ class ForecastModel(object):
             with open(save_alerts, 'w') as fp:                
                 fp.write('{:d}\n'.format(in_alert))
         
-        if save is None:
-            return
+        if save is not None:
+            self._plot_hires_forecast(ys, save, 0.8, nztimezone=nztimezone)
 
-        self._plot_hires_forecast(ys, save, 0.8, nztimezone=nztimezone)
+        return ys
+
     # plotting methods
     def plot_forecast(self, ys, threshold=0.75, save=None, xlim=['2019-12-01','2020-02-01']):
         """ Plot model forecast.
