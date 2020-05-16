@@ -24,7 +24,6 @@ def plot(ys, focus='all'):
                        index=ys.index)
     calibrated.loc[window].plot()
     target.loc[events[focus](target)].plot(linestyle=':')
-    plt.ylim(0,0.25)
     plt.ylabel('probability')
 
 
@@ -79,7 +78,7 @@ plt.close()
 plot(out, '2019')
 plt.axvline(x=pd.datetime.fromisoformat('2019-12-09 01:11:00'),
            color='red')
-plt.axhline(y=0.2,linestyle='--', color='k')
+plt.axhline(y=0.5,linestyle='--', color='k')
 plt.savefig('DS20eEc_a__calibrated_2019.pdf', bbox_inches='tight')
 plt.close()
 
