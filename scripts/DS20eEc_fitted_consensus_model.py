@@ -43,17 +43,17 @@ calibration_window = ys.index[ys.index < '2019-12-01 00:00:00']
 
 clf = LogisticRegression()
 
-cccv = CalibratedClassifierCV(clf)
+cccv = CalibratedClassifierCV(clf, method='isotonic')
 cccv.fit(ys.loc[calibration_window], target.loc[calibration_window])
 
 plot(ys)
-plt.savefig('DS20eEb_a__calibrated.pdf', bbox_inches='tight')
+plt.savefig('DS20eEc_a__calibrated.pdf', bbox_inches='tight')
 plt.close()
 
 plot(ys, '2012')
 plt.axvline(x=pd.datetime.fromisoformat('2012-08-04 16:52:00'),
            color='red')
-plt.savefig('DS20eEb_a__calibrated_2012.pdf', bbox_inches='tight')
+plt.savefig('DS20eEc_a__calibrated_2012.pdf', bbox_inches='tight')
 plt.close()
 
 plot(ys, '2013')
@@ -61,13 +61,13 @@ plt.axvline(x=pd.datetime.fromisoformat('2013-08-19 22:23:00'),
            color='red')
 plt.axvline(x=pd.datetime.fromisoformat('2013-10-03 12:35:00'),
            color='red')
-plt.savefig('DS20eEb_a__calibrated_2013.pdf', bbox_inches='tight')
+plt.savefig('DS20eEc_a__calibrated_2013.pdf', bbox_inches='tight')
 plt.close()
 
 plot(ys, '2016')
 plt.axvline(x=pd.datetime.fromisoformat('2016-04-27 09:37:00'),
            color='red')
-plt.savefig('DS20eEb_a__calibrated_2016.pdf', bbox_inches='tight')
+plt.savefig('DS20eEc_a__calibrated_2016.pdf', bbox_inches='tight')
 plt.close()
 
 out = fm.hires_forecast(ti=pd.datetime.fromisoformat('2019-12-02 00:00:00'),
@@ -80,7 +80,7 @@ plot(out, '2019')
 plt.axvline(x=pd.datetime.fromisoformat('2019-12-09 01:11:00'),
            color='red')
 plt.axhline(y=0.2,linestyle='--', color='k')
-plt.savefig('DS20eEb_a__calibrated_2019.pdf', bbox_inches='tight')
+plt.savefig('DS20eEc_a__calibrated_2019.pdf', bbox_inches='tight')
 plt.close()
 
 
