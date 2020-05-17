@@ -55,9 +55,11 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.naive_bayes import GaussianNB
 from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
+from sklearn.pipeline import Pipeline, make_pipeline
+from sklearn.preprocessing import PolynomialFeatures
 
 datas = ['rsam','mf','hf','dsar']
-all_classifiers = ["SVM","KNN",'DT','RF','NN','NB','LR']
+all_classifiers = ["SVM","KNN",'DT', 'DTPF', 'RF','NN','NB','LR']
 _MONTH = timedelta(days=365.25/12)
 _DAY = timedelta(days=1.)
 
@@ -969,6 +971,7 @@ class ForecastModel(object):
             SVM - Support Vector Machine.
             KNN - k-Nearest Neighbors
             DT - Decision Tree
+            DTPF - Decision Tree on Polynomial Features
             RF - Random Forest
             NN - Neural Network
             NB - Naive Bayes
@@ -1607,6 +1610,13 @@ def get_classifier(classifier):
         model = DecisionTreeClassifier(class_weight='balanced')
         grid = {'max_depth': [3,5,7], 'criterion': ['gini','entropy'],
             'max_features': ['auto','sqrt','log2',None]}
+    elif classifier == 'DTPF':
+        model = Pipeline([('polynomial', PolynomialFeatures()),
+                          ('clf', DecisionTreeClassifier())
+                          ])
+        grid = {'clf__max_depth': [3, 5, 7], 'clf__criterion': ['gini', 'entropy'],
+                'clf__max_features': ['auto', 'sqrt', 'log2', None],
+                'polynomial__degree': [1, 2, 3, 4, 5]}
     elif classifier == "RF":        # random forest
         model = RandomForestClassifier(class_weight='balanced')
         grid = {'n_estimators': [10,30,100], 'max_depth': [3,5,7], 'criterion': ['gini','entropy'],

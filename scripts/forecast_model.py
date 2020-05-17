@@ -58,24 +58,31 @@ def forecast_dec2019():
     fm.hires_forecast(ti=te-fm.dtw-fm.dtf, tf=te+month/30, recalculate=True, 
         save=r'{:s}/forecast_hires.png'.format(fm.plotdir), n_jobs=n_jobs)
 
-def forecast_test():
+def forecast_test(two_features=False):
     ''' test scale forecast model
     '''
     # constants
     month = timedelta(days=365.25/12)
-        
-    # set up model
-    data_streams = ['rsam','mf','hf','dsar']
-    fm = ForecastModel(ti='2012-04-01', tf='2012-10-01', window=2., overlap=0.75, 
-        look_forward=2., data_streams=data_streams, root='test')
-    
+
     # set the available CPUs higher or lower as appropriate
     n_jobs = 6
-    
-    # train the model
-    drop_features = ['linear_trend_timewise','agg_linear_trend']
-    fm.train(ti='2012-04-01', tf='2012-10-01', drop_features=drop_features, retrain=True,
-        n_jobs=n_jobs)      
+
+    # set up model
+    if two_features:
+        data_streams = ['rsam']
+        fm = ForecastModel(ti='2012-04-01', tf='2012-10-01', window=2., overlap=0.75,
+                           look_forward=2., data_streams=data_streams, root='testPF')
+        fm.train(ti='2012-04-01', tf='2012-10-01', retrain=True,
+                 n_jobs=n_jobs, classifier="DTPF",
+                 use_only_features=['rsam__maximum', 'rsam__fft_coefficient__coeff_12__attr_"abs"'])
+    else:
+        data_streams = ['rsam', 'mf', 'hf', 'dsar']
+        fm = ForecastModel(ti='2012-04-01', tf='2012-10-01', window=2., overlap=0.75,
+                           look_forward=2., data_streams=data_streams, root='test')
+        # train the model
+        drop_features = ['linear_trend_timewise', 'agg_linear_trend']
+        fm.train(ti='2012-04-01', tf='2012-10-01', drop_features=drop_features, retrain=True,
+                 n_jobs=n_jobs)
 
     # plot a forecast for a future eruption
     te = fm.data.tes[1]
@@ -116,6 +123,6 @@ def forecast_now():
 
 if __name__ == "__main__":
     #forecast_dec2019()
-    forecast_test()
+    forecast_test(two_features=True)
     #forecast_now()
     
