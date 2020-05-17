@@ -133,7 +133,7 @@ def forecast_now():
         save='current_forecast.png', nztimezone=True, n_jobs=n_jobs)  
 
 if __name__ == "__main__":
-    forecast_dec2019(two_features=True)
-    #forecast_test(two_features=True)
+    #forecast_dec2019(two_features=True)
+    forecast_test(two_features=True)
     #forecast_now()
     
