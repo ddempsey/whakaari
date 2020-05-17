@@ -59,7 +59,7 @@ from sklearn.pipeline import Pipeline, make_pipeline
 from sklearn.preprocessing import PolynomialFeatures
 
 datas = ['rsam','mf','hf','dsar']
-all_classifiers = ["SVM","KNN",'DT', 'DTPF', 'RF','NN','NB','LR']
+all_classifiers = ["SVM","KNN",'DT', 'DTPBF', 'RF','NN','NB','LR']
 _MONTH = timedelta(days=365.25/12)
 _DAY = timedelta(days=1.)
 
@@ -1593,6 +1593,7 @@ def get_classifier(classifier):
         SVM - Support Vector Machine.
         KNN - k-Nearest Neighbors
         DT - Decision Tree
+        DTPBF - Decision Tree with Polynomial Basis Functions
         RF - Random Forest
         NN - Neural Network
         NB - Naive Bayes
@@ -1610,7 +1611,7 @@ def get_classifier(classifier):
         model = DecisionTreeClassifier(class_weight='balanced')
         grid = {'max_depth': [3,5,7], 'criterion': ['gini','entropy'],
             'max_features': ['auto','sqrt','log2',None]}
-    elif classifier == 'DTPF':
+    elif classifier == 'DTPBF':
         model = Pipeline([('polynomial', PolynomialFeatures()),
                           ('clf', DecisionTreeClassifier())
                           ])

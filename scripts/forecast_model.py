@@ -32,7 +32,7 @@ def forecast_dec2019(two_features=False):
         fm = ForecastModel(ti='2012-04-01', tf='2012-10-01', window=2., overlap=0.75,
                            look_forward=2., data_streams=data_streams, root='twoFeatures')
         use_only_features = ['rsam__maximum', 'rsam__fft_coefficient__coeff_12__attr_"abs"']
-        classifier = "DTPF"
+        classifier = 'DTPBF'
         drop_features = []
     else:
         data_streams = ['rsam','mf','hf','dsar']
@@ -84,7 +84,7 @@ def forecast_test(two_features=False):
         fm = ForecastModel(ti='2012-04-01', tf='2012-10-01', window=2., overlap=0.75,
                            look_forward=2., data_streams=data_streams, root='testPF')
         fm.train(ti='2012-04-01', tf='2012-10-01', retrain=True,
-                 n_jobs=n_jobs, classifier="DTPF",
+                 n_jobs=n_jobs, classifier='DTPBF',
                  use_only_features=['rsam__maximum', 'rsam__fft_coefficient__coeff_12__attr_"abs"'])
     else:
         data_streams = ['rsam', 'mf', 'hf', 'dsar']
