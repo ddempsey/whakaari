@@ -15,33 +15,44 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=FitFailedWarning)
 
 
-def forecast_dec2019():
+def forecast_dec2019(two_features=False):
     ''' forecast model for Dec 2019 eruption
     '''
     # constants
     month = timedelta(days=365.25/12)
     day = timedelta(days=1)
     td = TremorData()
-        
-    # construct model object
-    data_streams = ['rsam','mf','hf','dsar']
-    fm = ForecastModel(ti='2011-01-01', tf='2020-01-01', window=2., overlap=0.75, 
-        look_forward=2., data_streams=data_streams)
-    
-    # columns to manually drop from feature matrix because they are highly correlated to other 
-    # linear regressors
-    drop_features = ['linear_trend_timewise','agg_linear_trend']
-    
+
     # set the available CPUs higher or lower as appropriate
     n_jobs = 6
 
+    # construct model object
+    if two_features:
+        data_streams = ['rsam']
+        fm = ForecastModel(ti='2012-04-01', tf='2012-10-01', window=2., overlap=0.75,
+                           look_forward=2., data_streams=data_streams, root='twoFeatures')
+        use_only_features = ['rsam__maximum', 'rsam__fft_coefficient__coeff_12__attr_"abs"']
+        classifier = "DTPF"
+        drop_features = []
+    else:
+        data_streams = ['rsam','mf','hf','dsar']
+        fm = ForecastModel(ti='2011-01-01', tf='2020-01-01', window=2., overlap=0.75,
+            look_forward=2., data_streams=data_streams)
+
+        # columns to manually drop from feature matrix because they are highly correlated to other
+        # linear regressors
+        drop_features = ['linear_trend_timewise', 'agg_linear_trend']
+        use_only_features = []
+        classifier = "DT"
+
     # train the model, excluding 2019 eruption
-    # note: building the feature matrix may take several hours, but only has to be done once 
+    # note: building the feature matrix may take several hours, but only has to be done once
     # and will intermittantly save progress in ../features/
     # trained scikit-learn models will be saved to ../models/*root*/
     te = td.tes[-1]
-    fm.train(ti='2011-01-01', tf='2020-01-01', drop_features=drop_features, retrain=True, 
-        exclude_dates=[[te-month,te+month],], n_jobs=n_jobs)      
+    fm.train(ti='2011-01-01', tf='2020-01-01', drop_features=drop_features, retrain=True,
+             exclude_dates=[[te-month,te+month],], n_jobs=n_jobs,
+             classifier=classifier, use_only_features=use_only_features)
 
     # run forecast from 2011 to 2020
     # model predictions will be saved to ../predictions/*root*/ 
@@ -122,7 +133,7 @@ def forecast_now():
         save='current_forecast.png', nztimezone=True, n_jobs=n_jobs)  
 
 if __name__ == "__main__":
-    #forecast_dec2019()
-    forecast_test(two_features=True)
+    forecast_dec2019(two_features=True)
+    #forecast_test(two_features=True)
     #forecast_now()
     
