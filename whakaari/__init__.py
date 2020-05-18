@@ -971,7 +971,7 @@ class ForecastModel(object):
             SVM - Support Vector Machine.
             KNN - k-Nearest Neighbors
             DT - Decision Tree
-            DTPF - Decision Tree on Polynomial Features
+            DTPBF - Decision Tree with Polynomial Basis Functions
             RF - Random Forest
             NN - Neural Network
             NB - Naive Bayes
