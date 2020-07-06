@@ -14,5 +14,8 @@ dependencies:
   - pandas=0.25.3
   - scipy=1.3.1
   - statsmodels=0.10.2
+  - yagmail=0.11.224
+  - python-twitter=3.5
+  - keyring=21.1.0
   - pip
 prefix: /anaconda3/envs/whakaari_env

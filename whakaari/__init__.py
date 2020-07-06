@@ -1144,7 +1144,7 @@ class ForecastModel(object):
 
         return forecast
     def hires_forecast(self, ti, tf, recalculate=True, save=None, root=None, nztimezone=False, 
-        save_alerts=None, n_jobs=6, threshold=0.8):
+        n_jobs=6, threshold=0.8):
         """ Construct forecast at resolution of data.
 
             Parameters:
@@ -1187,18 +1187,8 @@ class ForecastModel(object):
 
         # predict on hires features
         ys = _fm.forecast(ti, tf, recalculate, use_model=self.modeldir)
-
-        if save_alerts is not None:
-            tf = datetime.utcnow()
-            al = (ys['consensus'].values[ys.index>(tf-self.dtf)] > threshold)*1.
-            if len(al) == 0:
-                in_alert = -1
-            else:
-                in_alert = int(np.max(al))
-            with open(save_alerts, 'w') as fp:                
-                fp.write('{:d}\n'.format(in_alert))
         
-        if save is None:
+        if save is not None:
             self._plot_hires_forecast(ys, save, threshold, nztimezone=nztimezone)
 
         return ys
