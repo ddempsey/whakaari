@@ -39,44 +39,6 @@ class Alert(object):
         self.new_system_down = False
         self.heartbeat = False
         self.errors = []
-    def post(self, msg, media):
-        try:
-            api = twitter.Api(consumer_key=self.key['API_key'],
-                        consumer_secret=self.key['API_secret_key'],
-                        access_token_key=self.key['token'],
-                        access_token_secret=self.key['token_secret'])
-            status = api.PostUpdate(msg, media=media)
-        except:
-            pass
-    
-    def post_no_alert(self, msg=-1, media=-1):
-        if msg ==-1: msg = 'All quiet.'
-        if media ==-1: media = 'current_forecast.png'
-        self.post(msg, media)
-    
-    def post_startupdate(self, msg=-1, media=-1):
-        if msg ==-1: msg = 'Waking up.'
-        if media ==-1: media = 'current_forecast.png'
-        self.post(msg, media)
-        
-    def post_open_alert(self, msg=-1, media=-1):
-        if msg ==-1: 
-            msg = '🚨🚨 ERUPTION ALERT TRIGGERED 🚨🚨 There is a 1 in 12 chance for an eruption to occur. Alerts last on average 5 days.'
-        if media ==-1: media = 'current_forecast.png'
-        self.post(msg, media)
-        
-    def post_continue_alert(self, msg=-1, media=-1):
-        if msg ==-1: 
-            msg = '🚨🚨 YESTERDAY\'S ALERT CONTINUES 🚨🚨 There is a 1 in 12 chance for an eruption to occur during an alert. Alerts last on average 5 days.'
-        if media ==-1: media = 'current_forecast.png'
-        self.post(msg, media)
-
-    def post_close_alert(self, msg=-1, media=-1):
-        if msg ==-1: 
-            msg = 'The alert has closed.'
-        if media ==-1: media = 'current_forecast.png'
-        self.post(msg, media)
-
     def set_alert_level(self):
         # create alert object to pass info
         self.reset()
@@ -114,56 +76,89 @@ class Alert(object):
                 Path('on_alert').touch()
                 self.new_alert = True
                 self.post_open_alert()
-def send_startup_email():
-    yag = yagmail.SMTP(self.mail_from)
-    yag.send(to=self.mail_to,subject='starting up',contents='whakaari forecaster is starting up',attachments=None)
+    # Tweeting
+    def post(self, msg, media):
+        try:
+            api = twitter.Api(consumer_key=self.key['API_key'],
+                        consumer_secret=self.key['API_secret_key'],
+                        access_token_key=self.key['token'],
+                        access_token_secret=self.key['token_secret'])
+            status = api.PostUpdate(msg, media=media)
+        except:
+            pass
+    def post_no_alert(self, msg=-1, media=-1):
+        if msg ==-1: msg = 'All quiet.'
+        if media ==-1: media = 'current_forecast.png'
+        self.post(msg, media)
+    def post_startupdate(self, msg=-1, media=-1):
+        if msg ==-1: msg = 'Waking up.'
+        if media ==-1: media = 'current_forecast.png'
+        self.post(msg, media)
+    def post_open_alert(self, msg=-1, media=-1):
+        if msg ==-1: 
+            msg = '🚨🚨 ERUPTION ALERT TRIGGERED 🚨🚨 There is a 1 in 12 chance for an eruption to occur. Alerts last on average 5 days.'
+        if media ==-1: media = 'current_forecast.png'
+        self.post(msg, media)
+    def post_continue_alert(self, msg=-1, media=-1):
+        if msg ==-1: 
+            msg = '🚨🚨 YESTERDAY\'S ALERT CONTINUES 🚨🚨 There is a 1 in 12 chance for an eruption to occur during an alert. Alerts last on average 5 days.'
+        if media ==-1: media = 'current_forecast.png'
+        self.post(msg, media)
+    def post_close_alert(self, msg=-1, media=-1):
+        if msg ==-1: 
+            msg = 'The alert has closed.'
+        if media ==-1: media = 'current_forecast.png'
+        self.post(msg, media)
+    # Emailing
+    def send_startup_email(self):
+        yag = yagmail.SMTP(self.mail_from)
+        yag.send(to=self.mail_to,subject='starting up',contents='whakaari forecaster is starting up',attachments=None)
+    def send_email_alerts(self):
+        """ sends email alerts if appropriate
+        """
 
-def send_email_alerts(self):
-    """ sends email alerts if appropriate
-    """
-
-    if not any([self.new_alert, self.new_system_down, self.debug_problem, self.heartbeat]):
-        return
-    
-    if self.new_alert:
-        subject = "Whakaari Eruption Forecast: New alert"
-        message = [
-            'Whakaari Eruption Forecast model issued a new alert for {:s} local time.'.format(self.time_local.strftime('%d %b %Y at %H:%M')),
-            'Alerts last 48-hours and will auto-extend if elevated activity persists.',
-            'Based on historical activity, the probability of an eruption occuring during an alert is about 10%.',
-            {yagmail.inline('./current_forecast.png'):'Forecast_{:s}.png'.format(self.time_local.strftime('%Y%m%d-%H%M%S'))},]
-        attachment = None
-    elif self.new_system_down:
-        subject = "Whakaari Eruption Forecast: Not receiving data"
-        message = "Whakaari Eruption Forecast model is not receiving new data. Forecasting is suspended. Latest forecast is attached."
-        fcstfile = 'WhakaariForecast_latest.png'
-        shutil.copyfile('current_forecast.png',fcstfile)
-        attachment = fcstfile
-    elif self.debug_problem:
-        subject = "Whakaari Eruption Forecast: System Raising Errors"
-        message = "Whakaari Eruption Forecast model is raising errors. Summary below."
-        for err in self.errors:
-            with open(err,'r') as fp:
-                lns = fp.readlines()
-            message += '\n{:s}\n{:s}\n'.format(err, ''.join(lns))
-        attachment = self.errors
-    elif self.heartbeat:
-        subject = "Whakaari Eruption Forecast is working hard for YOU!"
-        message = "All is well here. Have a great day."
-        attachment = None
-
-    yag = yagmail.SMTP(self.mail_from)
-    yag.send(
-        to=self.mail_to,
-        subject=subject,
-        contents=message, 
-        attachments=attachment,
-    )
+        if not any([self.new_alert, self.new_system_down, self.debug_problem, self.heartbeat]):
+            return
         
+        if self.new_alert:
+            subject = "Whakaari Eruption Forecast: New alert"
+            message = [
+                'Whakaari Eruption Forecast model issued a new alert for {:s} local time.'.format(self.time_local.strftime('%d %b %Y at %H:%M')),
+                'Alerts last 48-hours and will auto-extend if elevated activity persists.',
+                'Based on historical activity, the probability of an eruption occuring during an alert is about 10%.',
+                {yagmail.inline('./current_forecast.png'):'Forecast_{:s}.png'.format(self.time_local.strftime('%Y%m%d-%H%M%S'))},]
+            attachment = None
+        elif self.new_system_down:
+            subject = "Whakaari Eruption Forecast: Not receiving data"
+            message = "Whakaari Eruption Forecast model is not receiving new data. Forecasting is suspended. Latest forecast is attached."
+            fcstfile = 'WhakaariForecast_latest.png'
+            shutil.copyfile('current_forecast.png',fcstfile)
+            attachment = fcstfile
+        elif self.debug_problem:
+            subject = "Whakaari Eruption Forecast: System Raising Errors"
+            message = "Whakaari Eruption Forecast model is raising errors. Summary below."
+            for err in self.errors:
+                with open(err,'r') as fp:
+                    lns = fp.readlines()
+                message += '\n{:s}\n{:s}\n'.format(err, ''.join(lns))
+            attachment = self.errors
+        elif self.heartbeat:
+            subject = "Whakaari Eruption Forecast is working hard for YOU!"
+            message = "All is well here. Have a great day."
+            attachment = None
+
+        yag = yagmail.SMTP(self.mail_from)
+        yag.send(
+            to=self.mail_to,
+            subject=subject,
+            contents=message, 
+            attachments=attachment,
+        )
+            
 class Controller(object):
-    def __init__(self, mail_from, mail_to, keyfile):
-        self.alert = Alert(mail_to,mail_from,keyfile)
-    
+    def __init__(self, mail_from, mail_to, keyfile, test=False):
+        self.test = test
+        self.alert = Alert(mail_from,mail_to,keyfile)
     def run(self):
         """ Top-level function to update forecast.
         """
@@ -173,6 +168,10 @@ class Controller(object):
 
         update_geonet_err_count = 0                     # counter to allow Nmax geonet update errors
         geonet_err_max = 24*6 
+        if not self.test:
+            heartbeat_update = 24*3600
+        else:
+            heartbeat_update = 5
         tstart = time()
         while True:
             # take start time of look
@@ -186,13 +185,17 @@ class Controller(object):
             errors = []
 
             # update forecast
-            command=['python','controller.py','-m','update_forecast']
+            command=['python','controller.py','-m']
+            if not self.test: 
+                command.append('update_forecast')
+            else:
+                command.append('update_forecast_test')
             # spawn subprocess
             with open("whakaari_stdout.txt","wb") as out, open("whakaari_stderr.txt","wb") as err:
                 p=Popen("ls",stdout=out,stderr=err)
                 p=Popen(command, stdout=out, stderr=err)
                 p.communicate()
-
+                
             if os.path.isfile('run_forecast.err'):
                 errors.append('run_forecast.err')
                 
@@ -238,7 +241,7 @@ class Controller(object):
                 sleep(wait)
 
             # check to send heartbeat email - every 24 hrs
-            if (time() - tstart) > (24*3600):
+            if (time() - tstart) > heartbeat_update:
                 self.alert.rest()
                 self.alert.heartbeat = True
                 tstart = time()
@@ -321,6 +324,11 @@ def update_forecast():
         fp.close()
         return
 
+def update_forecast_test():
+    with open('alert.csv', 'w') as fp:    
+        in_alert = int(np.random.rand()>0.5)            
+        fp.write('{:d}\n'.format(in_alert))
+
 def clean():
     # remove files
     fls = ['current_forecast.png', 'run_forecast.err', 'update_geonet.err','controller.err']
@@ -345,9 +353,13 @@ if __name__ == "__main__":
     if args.m == 'controller':
         controller = Controller(mail_from, mail_to, keyfile)
         controller.run()
-        controller(mail_from, mail_to, keyfile)
+    elif args.m == 'controller-test':
+        controller = Controller(mail_from, mail_to, keyfile, test=True)
+        controller.run()
     elif args.m == 'update_forecast':
         update_forecast()
+    elif args.m == 'update_forecast_test':
+        update_forecast_test()
     elif args.m == 'rebuild_hires_features':
         rebuild_hires_features()
     
