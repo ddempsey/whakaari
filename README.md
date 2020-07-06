@@ -42,7 +42,7 @@ python forecast_model.py
 ## Disclaimers
 1. This eruption forecast model is not guaranteed to predict every future eruption, it only increases the likelihood. In our paper, we discuss the conditions under which the forecast model is likely to perform poorly.
 
-2. This eruption forecast model provides a probabilistic prediction of the future. During periods of higher risk, it issues an alert that an eruption is *more likely* to occur in the immediate future. At present, our best estimate is that when an alert is issued at 80% consensus there is a 1 in 10 chance of an eruption occurring. 
+2. This eruption forecast model provides a probabilistic prediction of the future. During periods of higher risk, it issues an alert that an eruption is *more likely* to occur in the immediate future. At present, our best estimate is that when an alert is issued at 80% consensus there is a 1 in 12 chance of an eruption occurring. On average, alerts last about 5 days. Eruption probability and average alert length could change depending on which eruptions are used to train the model.
 
 3. This software is not guaranteed to be free of bugs or errors. Most codes have a few errors and, provided these are minor, they will have only a marginal effect on accuracy and performance. That being said, if you discover a bug or error, please report this at [https://github.com/ddempsey/whakaari/issues](https://github.com/ddempsey/whakaari/issues).
 
