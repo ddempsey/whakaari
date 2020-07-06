@@ -1144,7 +1144,7 @@ class ForecastModel(object):
 
         return forecast
     def hires_forecast(self, ti, tf, recalculate=True, save=None, root=None, nztimezone=False, 
-        save_alerts=None, n_jobs=6):
+        save_alerts=None, n_jobs=6, threshold=0.8):
         """ Construct forecast at resolution of data.
 
             Parameters:
@@ -1190,7 +1190,7 @@ class ForecastModel(object):
 
         if save_alerts is not None:
             tf = datetime.utcnow()
-            al = (ys['consensus'].values[ys.index>(tf-self.dtf)] > 0.8)*1.
+            al = (ys['consensus'].values[ys.index>(tf-self.dtf)] > threshold)*1.
             if len(al) == 0:
                 in_alert = -1
             else:
@@ -1199,9 +1199,9 @@ class ForecastModel(object):
                 fp.write('{:d}\n'.format(in_alert))
         
         if save is None:
-            return
+            self._plot_hires_forecast(ys, save, threshold, nztimezone=nztimezone)
 
-        self._plot_hires_forecast(ys, save, 0.8, nztimezone=nztimezone)
+        return ys
     # plotting methods
     def plot_forecast(self, ys, threshold=0.75, save=None, xlim=['2019-12-01','2020-02-01']):
         """ Plot model forecast.
