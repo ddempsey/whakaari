@@ -66,15 +66,15 @@ def forecast_test():
         
     # set up model
     data_streams = ['rsam','mf','hf','dsar']
-    fm = ForecastModel(ti='2012-04-01', tf='2012-10-01', window=2., overlap=0.75, 
-        look_forward=2., data_streams=data_streams, root='test', savefile_ext='hdf')
+    fm = ForecastModel(ti='2012-07-15', tf='2012-08-16', window=2., overlap=0.75, 
+        look_forward=2., data_streams=data_streams, root='test', savefile_type='pkl')
     
     # set the available CPUs higher or lower as appropriate
     n_jobs = 1
     
     # train the model
     drop_features = ['linear_trend_timewise','agg_linear_trend']
-    fm.train(ti='2012-04-01', tf='2012-10-01', drop_features=drop_features, retrain=True,
+    fm.train(ti='2012-07-15', tf='2012-08-16', drop_features=drop_features, retrain=False,
         n_jobs=n_jobs)      
 
     # plot a forecast for a future eruption

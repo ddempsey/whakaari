@@ -547,7 +547,7 @@ class ForecastModel(object):
             try:
                 dfi['id'] = pd.Series(np.ones(self.iw, dtype=int)*i, index=dfi.index)
             except ValueError:
-                print('hi')
+                print('this shouldn\'t be happening')
             dfs.append(dfi)
         df = pd.concat(dfs)
         window_dates = [ti + i*self.dto for i in range(Nw)]
@@ -1200,7 +1200,7 @@ class ForecastModel(object):
         # calculate hires feature matrix
         if root is None:
             root = self.root+'_hires'
-        _fm = ForecastModel(self.window, 1., self.look_forward, ti, tf, self.data_streams, root=root)
+        _fm = ForecastModel(self.window, 1., self.look_forward, ti, tf, self.data_streams, root=root, savefile_type=self.savefile_type)
         _fm.compute_only_features = list(set([ft.split('__')[1] for ft in self._collect_features()[0]]))
         _fm._extract_features(ti, tf)
 
@@ -1585,8 +1585,10 @@ def save_dataframe(df, fl, index=True, index_label=None):
     elif fl.endswith('.pkl'):
         fp = open(fl, 'wb')
         pickle.dump(df,fp)
+    elif fl.endswith('.hdf'):
+        df.to_hdf(fl, 'test', format='fixed', mode='w')
     else:
-        raise ValueError('only csv and pkl file formats supported')
+        raise ValueError('only csv, hdf and pkl file formats supported')
 
 def load_dataframe(fl, index_col=None, parse_dates=False, usecols=None, infer_datetime_format=False, 
     nrows=None, header='infer', skiprows=None):
@@ -1596,6 +1598,12 @@ def load_dataframe(fl, index_col=None, parse_dates=False, usecols=None, infer_da
     elif fl.endswith('.pkl'):
         fp = open(fl, 'rb')
         df = pickle.load(fp)
+    elif fl.endswith('.hdf'):
+        df = pd.read_hdf(fl, 'test')
+    else:
+        raise ValueError('only csv and pkl file formats supported')
+
+    if fl.endswith('.pkl') or fl.endswith('.hdf'):
         if usecols is not None:
             if len(usecols) == 1 and usecols[0] == df.index.name:
                 df = df[df.columns[0]]
@@ -1608,8 +1616,6 @@ def load_dataframe(fl, index_col=None, parse_dates=False, usecols=None, infer_da
             df = df.iloc[inds]
         elif skiprows is not None:
             df = df.iloc[skiprows:]
-    else:
-        raise ValueError('only csv and pkl file formats supported')
     return df
 
 def get_classifier(classifier):
