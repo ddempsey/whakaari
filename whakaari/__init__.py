@@ -1309,9 +1309,10 @@ class ForecastModel(object):
         makedir(self.plotdir)
         # set up figures and axes
         f = plt.figure(figsize=(8,8))
-        ax1 = plt.axes([0.1, 0.57, 0.8, 0.4])
-        ax2 = plt.axes([0.1, 0.09, 0.8, 0.4])
+        ax1 = plt.axes([0.1, 0.55, 0.8, 0.4])
+        ax2 = plt.axes([0.1, 0.08, 0.8, 0.4])
         t = pd.to_datetime(ys.index.values)
+        rsam = self.data.get_data(t[0], t[-1])['rsam']
         if nztimezone:
             t = to_nztimezone(t)
             ax2.set_xlabel('Local time')
@@ -1319,8 +1320,9 @@ class ForecastModel(object):
             ax2.set_xlabel('UTC')
         y = np.mean(np.array([ys[col] for col in ys.columns]), axis=0)
         
-        ax2.set_xlim([t[-1]-timedelta(days=1), t[-1]])
+        ax2.set_xlim([t[-1]-timedelta(days=7), t[-1]])
         ax1.set_xlim([t[0], t[-1]])
+        ax1.set_title('Whakaari Eruption Forecast')
         for ax in [ax1,ax2]:
             ax.set_ylim([-5, 105])
             ax.set_yticks([0,25,50,75,100])
@@ -1330,29 +1332,38 @@ class ForecastModel(object):
             ax.axhline(threshold*100, color='k', linestyle=':', label='alert threshold', zorder=4)
 
             # modelled alert
-            ax.plot(t, y*100, 'c-', label='eruption consensus', zorder=4)
+            ax.plot(t, y*100, 'c-', label='eruption consensus', zorder=4, lw=0.75)
+            ax_ = ax.twinx()
+            ax_.plot(t[:-1], rsam*1.e-3, 'k-', lw=0.75)
+            ax_.set_ylabel('RSAM [$\mu$m s$^{-1}$]')
 
             for tii,yi in zip(t, y):
                 if yi > threshold:
                     ax.fill_between([tii, tii+self.dtf], [0,0], [100,100], color='y', zorder=3)
                     
             ax.fill_between([], [], [], color='y', label='eruption forecast')
-        ax1.legend()
+            ax.plot([],[],'k-', lw=0.75, label='RSAM')
+        ax1.legend(loc=1)
         
         tf = t[-1]
         t0 = tf.replace(hour=0, minute=0, second=0)
         xts = [t0 - timedelta(days=i) for i in range(7)][::-1]
         lxts = [xt.strftime('%d %b') for xt in xts]
-        ax1.set_xticks(xts)
-        ax1.set_xticklabels(lxts)
-        ax2.text(0.025, 0.95, t0.strftime('%d %b %Y'), size = 12, ha = 'left', 
-            va = 'top', transform=ax2.transAxes)
-        
-        t0 = tf.replace(hour=tf.hour - tf.hour%2, minute=0, second=0)
-        xts = [t0 - timedelta(days=i/12) for i in range(12)][::-1]
-        lxts = [xt.strftime('%H:00') for xt in xts]
         ax2.set_xticks(xts)
         ax2.set_xticklabels(lxts)
+        tfi  = self.data.tf
+        if nztimezone:
+            tfi = to_nztimezone([tfi])
+        ax2.text(0.025, 0.95, 'last updated {:s}'.format(tfi[0].strftime('%H:%M, %d %b %Y')), size = 12, ha = 'left', 
+            va = 'top', transform=ax2.transAxes)
+        
+        t0 = datetimeify('2020-01-01')
+        xts = [t0.replace(month=i) for i in range(1, tf.month+1)]
+        lxts = [xt.strftime('%d %b') for xt in xts]
+        ax1.set_xticks(xts)
+        ax1.set_xticklabels(lxts)
+        ax1.text(0.025, 0.95, t0.strftime('%Y'), size = 12, ha = 'left', 
+            va = 'top', transform=ax1.transAxes)
 
         plt.savefig(save, dpi=400)
         plt.close(f)
