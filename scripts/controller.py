@@ -7,6 +7,7 @@ from pathlib import Path
 from dateutil import tz
 from time import sleep, time
 import pandas as pd
+import numpy as np
 import twitter
 
 # tsfresh and sklearn dump a lot of warnings - these are switched off below, but should be
@@ -25,7 +26,7 @@ class Alert(object):
         # notification settings
         self.mail_from = mail_from
         self.mail_to = mail_to
-        self.key = Key(self.keyfile)
+        self.key = Key(keyfile)
         # alert settings
         self.reset()
         # time settings
@@ -56,7 +57,7 @@ class Alert(object):
             _ = [os.remove(fl) for fl in ['off_alert','on_alert'] if os.path.isfile(fl)]
             Path('system_down').touch()
             self.new_system_down = True
-        elif alert.in_alert == 0:
+        elif self.in_alert == 0:
             # Forecaster is not in alert
             if os.path.isfile('on_alert'):
                 # If previous on alert, delete that file 
@@ -66,7 +67,7 @@ class Alert(object):
             elif not os.path.isfile('off_alert'):
                 # create 'no alert' file if not already existing
                 Path('off_alert').touch()
-        elif alert.in_alert == 1:
+        elif self.in_alert == 1:
             # Forecaster is in alert
             if os.path.isfile('off_alert'):
                 # This is a new alert - broadcast
@@ -213,7 +214,7 @@ class Controller(object):
                 update_geonet_err_count = 0
             
             # set alert, check up to date
-            self.set_alert_level()
+            self.alert.set_alert_level()
             if len(errors) > 0:
                 self.alert.errors += errors
                 self.alert.debug_problem = True
@@ -236,20 +237,21 @@ class Controller(object):
                 break
 
             # wait out the rest of 10 mins
-            wait = 600 - (time() - t0)
-            if wait > 0:
-                sleep(wait)
+            if not self.test:
+                wait = 600 - (time() - t0)
+                if wait > 0:
+                    sleep(wait)
 
             # check to send heartbeat email - every 24 hrs
             if (time() - tstart) > heartbeat_update:
-                self.alert.rest()
+                self.alert.reset()
                 self.alert.heartbeat = True
                 tstart = time()
                 self.alert.send_email_alerts()
                 if self.alert.in_alert == 1:
-                    self.post_continue_alert()
+                    self.alert.post_continue_alert()
                 else:
-                    self.post_no_alert()
+                    self.alert.post_no_alert()
 
 def rebuild_hires_features():
     ''' Call this once if the feature matrix file has been damaged and needs to be rebuilt without murdering memory
@@ -328,6 +330,7 @@ def update_forecast_test():
     with open('alert.csv', 'w') as fp:    
         in_alert = int(np.random.rand()>0.5)            
         fp.write('{:d}\n'.format(in_alert))
+    shutil.copyfile('../current_forecast.png','current_forecast.png')
 
 def clean():
     # remove files
