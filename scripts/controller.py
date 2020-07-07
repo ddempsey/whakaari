@@ -260,7 +260,7 @@ def rebuild_hires_features():
     td = TremorData() 
     data_streams = ['rsam','mf','hf','dsar']
     fm = ForecastModel(ti='2011-01-01', tf=td.tf, window=2, overlap=0.75,  
-        look_forward=2, data_streams=data_streams, root='online_forecaster')
+        look_forward=2, data_streams=data_streams, root='online_forecaster',savefile_type='pkl')
         
     drop_features = ['linear_trend_timewise','agg_linear_trend']
     fm.train(ti='2011-01-01', tf='2020-01-01', drop_features=drop_features, Ncl=500,
@@ -296,7 +296,7 @@ def update_forecast():
         # model from 2011 to present day (td.tf)
         data_streams = ['rsam','mf','hf','dsar']
         fm = ForecastModel(ti='2011-01-01', tf=td.tf, window=2, overlap=0.75,  
-            look_forward=2, data_streams=data_streams, root='online_forecaster')
+            look_forward=2, data_streams=data_streams, root='online_forecaster',savefile_type='pkl')
         
         # The online forecaster is trained using all eruptions in the dataset. It only
         # needs to be trained once, or again after a new eruption.

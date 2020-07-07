@@ -201,7 +201,7 @@ class TremorData(object):
         # read temporary files in as dataframes for concatenation with existing data
         dfs = [self.df[datas]]
         for i in range(ndays):
-            fl = '_tmp/_tmp_fl_{:05d}.{:s}'.format(i,self.savefile_type)
+            fl = '_tmp/_tmp_fl_{:05d}.csv'.format(i)
             if not os.path.isfile(fl): 
                 continue
             # dfs.append(pd.read_csv(fl, index_col=0, parse_dates=[0,], infer_datetime_format=True))
@@ -1749,8 +1749,7 @@ def get_data_for_day(i,t0):
     datas = np.array(datas)
     time = [(ti+j*600).datetime for j in range(datas.shape[1])]
     df = pd.DataFrame(zip(*datas), columns=names, index=pd.Series(time))
-    # df.to_csv('_tmp/_tmp_fl_{:05d}.csv'.format(i), index=True, index_label='time')
-    save_dataframe(df, '_tmp/_tmp_fl_{:05d}.{:s}'.format(i,self.savefile_type), index=True, index_label='time')
+    save_dataframe(df, '_tmp/_tmp_fl_{:05d}.csv'.format(i), index=True, index_label='time')
 
 def update_geonet_data():
     """ Download latest GeoNet data for WIZ.
