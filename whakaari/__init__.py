@@ -5,7 +5,7 @@ __email__ = 'd.dempsey@auckland.ac.nz'
 __version__ = '0.1.0'
 
 # general imports
-import os, sys, shutil, warnings, gc, joblib
+import os, sys, shutil, warnings, gc, joblib, pickle
 import numpy as np
 from datetime import datetime, timedelta, date
 from copy import copy
@@ -85,7 +85,7 @@ class TremorData(object):
             Plot tremor data.
     """
     def __init__(self):
-        self.file = os.sep.join(getfile(currentframe()).split(os.sep)[:-2]+['data','tremor_data.dat'])
+        self.file = os.sep.join(getfile(currentframe()).split(os.sep)[:-2]+['data','tremor_data.csv'])
         self._assess()
     def __repr__(self):
         if self.exists:
@@ -107,7 +107,8 @@ class TremorData(object):
             t1 = datetime(2011,1,2)
             self.update(t0,t1)
         # check date of latest data in file
-        self.df = pd.read_csv(self.file, index_col=0, parse_dates=[0,], infer_datetime_format=True)
+        self.df = load_dataframe(self.file, index_col=0, parse_dates=[0,], infer_datetime_format=True)
+        # self.df = pd.read_csv(self.file, index_col=0, parse_dates=[0,], infer_datetime_format=True)
         self.ti = self.df.index[0]
         self.tf = self.df.index[-1]
     def _compute_transforms(self):
@@ -200,10 +201,11 @@ class TremorData(object):
         # read temporary files in as dataframes for concatenation with existing data
         dfs = [self.df[datas]]
         for i in range(ndays):
-            fl = '_tmp/_tmp_fl_{:05d}.dat'.format(i)
+            fl = '_tmp/_tmp_fl_{:05d}.{:s}'.format(i,self.savefile_type)
             if not os.path.isfile(fl): 
                 continue
-            dfs.append(pd.read_csv(fl, index_col=0, parse_dates=[0,], infer_datetime_format=True))
+            # dfs.append(pd.read_csv(fl, index_col=0, parse_dates=[0,], infer_datetime_format=True))
+            dfs.append(load_dataframe(fl, index_col=0, parse_dates=[0,], infer_datetime_format=True))
         shutil.rmtree('_tmp')
         self.df = pd.concat(dfs)
 
@@ -216,7 +218,8 @@ class TremorData(object):
             ind = i*24*6
             self.df['dsar'][ind] = 0.5*(self.df['dsar'][ind-1]+self.df['dsar'][ind+1])
 
-        self.df.to_csv(self.file, index=True)
+        # self.df.to_csv(self.file, index=True)
+        save_dataframe(self.df, self.file, index=True)
         self.ti = self.df.index[0]
         self.tf = self.df.index[-1]
     def get_data(self, ti=None, tf=None):
@@ -339,6 +342,8 @@ class ForecastModel(object):
         root : str 
             Naming convention for forecast files. If not given, will default to 'fm_*Tw*wndw_*eta*ovlp_*Tlf*lkfd_*ds*' where
             Tw is the window length, eta is overlap fraction, Tlf is look-forward and ds are data streams.
+        savefile_type : str
+            Extension denoting file format for save/load. Options are csv, pkl (Python pickle) or hdf.
 
         Attributes:
         -----------
@@ -435,7 +440,7 @@ class ForecastModel(object):
         plot_feature_correlation
             Corner plot of feature correlation.
     """
-    def __init__(self, window, overlap, look_forward, ti=None, tf=None, data_streams=['rsam','mf','hf','dsar'], root=None):
+    def __init__(self, window, overlap, look_forward, ti=None, tf=None, data_streams=['rsam','mf','hf','dsar'], root=None, savefile_type='csv'):
         self.window = window
         self.overlap = overlap
         self.look_forward = look_forward
@@ -476,6 +481,7 @@ class ForecastModel(object):
         self.n_jobs = 6
 
         # naming convention and file system attributes
+        self.savefile_type = savefile_type
         if root is None:
             self.root = 'fm_{:3.2f}wndw_{:3.2f}ovlp_{:3.2f}lkfd'.format(self.window, self.overlap, self.look_forward)
             self.root += '_'+((('{:s}-')*len(self.data_streams))[:-1]).format(*sorted(self.data_streams))
@@ -485,7 +491,7 @@ class ForecastModel(object):
         self.plotdir = r'{:s}/plots/{:s}'.format(self.rootdir, self.root)
         self.modeldir = r'{:s}/models/{:s}'.format(self.rootdir, self.root)
         self.featdir = r'{:s}/features'.format(self.rootdir, self.root)
-        self.featfile = r'{:s}/{:s}_features.csv'.format(self.featdir, self.root)
+        self.featfile = r'{:s}/{:s}_features.{:s}'.format(self.featdir, self.root, self.savefile_type)
         self.preddir = r'{:s}/predictions/{:s}'.format(self.rootdir, self.root)
     # private helper methods
     def _detect_model(self):
@@ -582,10 +588,12 @@ class ForecastModel(object):
 
         # check if feature matrix already exists and what it contains
         if os.path.isfile(self.featfile):
-            t = pd.to_datetime(pd.read_csv(self.featfile, index_col=0, parse_dates=['time'], usecols=['time'], infer_datetime_format=True).index.values)
+            # t = pd.to_datetime(pd.read_csv(self.featfile, index_col=0, parse_dates=['time'], usecols=['time'], infer_datetime_format=True).index.values)
+            t = pd.to_datetime(load_dataframe(self.featfile, index_col=0, parse_dates=['time'], usecols=['time'], infer_datetime_format=True).index.values)
             ti0,tf0 = t[0],t[-1]
             Nw0 = len(t)
-            hds = pd.read_csv(self.featfile, index_col=0, nrows=1)
+            # hds = pd.read_csv(self.featfile, index_col=0, nrows=1)
+            hds = load_dataframe(self.featfile, index_col=0, nrows=1)
             hds = list(set([hd.split('__')[1] for hd in hds]))
 
             # option 1, expand rows
@@ -604,7 +612,8 @@ class ForecastModel(object):
 
             # option 3, expand both
             if any([more_cols, pad_left > 0, pad_right > 0]) and self.update_feature_matrix:
-                fm = pd.read_csv(self.featfile, index_col=0, parse_dates=['time'], infer_datetime_format=True)
+                # fm = pd.read_csv(self.featfile, index_col=0, parse_dates=['time'], infer_datetime_format=True)
+                fm = load_dataframe(self.featfile, index_col=0, parse_dates=['time'], infer_datetime_format=True)
                 if more_cols:
                     # expand columns now
                     df0, wd = self._construct_windows(Nw0, ti0)
@@ -612,6 +621,7 @@ class ForecastModel(object):
                     cfp0 = dict([(k, cfp0[k]) for k in cfp0.keys() if k in new_cols])
                     fm2 = extract_features(df0, column_id='id', n_jobs=self.n_jobs, default_fc_parameters=cfp0, impute_function=impute)
                     fm2.index = pd.Series(wd)
+                    fm2.index.name = 'time'
                     
                     fm = pd.concat([fm,fm2], axis=1, sort=False)
 
@@ -621,27 +631,33 @@ class ForecastModel(object):
                     df, wd = self._construct_windows(Nw, ti, i1=pad_left)
                     fm2 = extract_features(df, column_id='id', n_jobs=self.n_jobs, default_fc_parameters=cfp, impute_function=impute)
                     fm2.index = pd.Series(wd)
+                    fm2.index.name = 'time'
                     fm = pd.concat([fm2,fm], sort=False)
                     # expanded later
                 if pad_right > 0:
                     df, wd = self._construct_windows(Nw, ti, i0=Nw - pad_right)
                     fm2 = extract_features(df, column_id='id', n_jobs=self.n_jobs, default_fc_parameters=cfp, impute_function=impute)
                     fm2.index = pd.Series(wd)
+                    fm2.index.name = 'time'
                     fm = pd.concat([fm,fm2], sort=False)
                 
                 # write updated file output
-                fm.to_csv(self.featfile, index=True, index_label='time')
+                # fm.to_csv(self.featfile, index=True, index_label='time')
+                save_dataframe(fm, self.featfile, index=True, index_label='time')
                 # trim output
                 fm = fm.iloc[i0:i1]    
             else:
                 # read relevant part of matrix
-                fm = pd.read_csv(self.featfile, index_col=0, parse_dates=['time'], infer_datetime_format=True, header=0, skiprows=range(1,i0+1), nrows=i1-i0)
+                # fm = pd.read_csv(self.featfile, index_col=0, parse_dates=['time'], infer_datetime_format=True, header=0, skiprows=range(1,i0+1), nrows=i1-i0)
+                fm = load_dataframe(self.featfile, index_col=0, parse_dates=['time'], infer_datetime_format=True, header=0, skiprows=range(1,i0+1), nrows=i1-i0)
         else:
             # create feature matrix from scratch   
             df, wd = self._construct_windows(Nw, ti)
             fm = extract_features(df, column_id='id', n_jobs=self.n_jobs, default_fc_parameters=cfp, impute_function=impute)
             fm.index = pd.Series(wd)
-            fm.to_csv(self.featfile, index=True, index_label='time')
+            fm.index.name = 'time'
+            # fm.to_csv(self.featfile, index=True, index_label='time')
+            save_dataframe(fm, self.featfile, index=True, index_label='time')
             
         ys = pd.DataFrame(self._get_label(fm.index.values), columns=['label'], index=fm.index)
         return fm, ys
@@ -685,7 +701,8 @@ class ForecastModel(object):
 
         # read from CSV file
         try:
-            t = pd.to_datetime(pd.read_csv(self.featfile, index_col=0, parse_dates=['time'], usecols=['time'], infer_datetime_format=True).index.values)
+            # t = pd.to_datetime(pd.read_csv(self.featfile, index_col=0, parse_dates=['time'], usecols=['time'], infer_datetime_format=True).index.values)
+            t = pd.to_datetime(load_dataframe(self.featfile, index_col=0, parse_dates=['time'], usecols=['time'], infer_datetime_format=True).index.values)
             if (t[0] <= ti) and (t[-1] >= tf):
                 self.ti_prev = ti
                 self.tf_prev = tf
@@ -1094,7 +1111,7 @@ class ForecastModel(object):
         else:
             for fl in fls:
                 num = fl.split(os.sep)[-1].split('_')[-1].split('.')[0]
-                flp = '{:s}/{:s}_{:s}.csv'.format(self.preddir, pref, num)
+                flp = '{:s}/{:s}_{:s}.{:s}'.format(self.preddir, pref, num, self.savefile_type)
                 if not os.path.isfile(flp):
                     run_predictions.append(flp)
                 else:
@@ -1103,12 +1120,13 @@ class ForecastModel(object):
         ys = []            
         # load existing predictions
         for fl in load_predictions:
-            y = pd.read_csv(fl, index_col=0, parse_dates=['time'], infer_datetime_format=True)
+            # y = pd.read_csv(fl, index_col=0, parse_dates=['time'], infer_datetime_format=True)
+            y = load_dataframe(fl, index_col=0, parse_dates=['time'], infer_datetime_format=True)
             ys.append(y)
 
         # generate new predictions
         if len(run_predictions)>0:
-            run_predictions = [(rp, rp.replace(model_path, self.preddir+os.sep).replace('.pkl','.csv')) for rp in run_predictions]
+            run_predictions = [(rp, rp.replace(model_path, self.preddir+os.sep).replace('.pkl','.{:s}'.format(self.savefile_type))) for rp in run_predictions]
 
             # load feature matrix
             fM,_ = self._extract_features(self.ti_forecast, self.tf_forecast)
@@ -1135,7 +1153,8 @@ class ForecastModel(object):
         ys = pd.concat(ys, axis=1, sort=False)
         consensus = np.mean([ys[col].values for col in ys.columns if 'pred' in col], axis=0)
         forecast = pd.DataFrame(consensus, columns=['consensus'], index=ys.index)
-        forecast.to_csv('{:s}/consensus.csv'.format(self.preddir), index=True, index_label='time')
+        # forecast.to_csv('{:s}/consensus.csv'.format(self.preddir), index=True, index_label='time')
+        save_dataframe(forecast, '{:s}/consensus.{:s}'.format(self.preddir,self.savefile_type), index=True, index_label='time')
         
         # memory management
         if len(run_predictions)>0:
@@ -1560,6 +1579,39 @@ class ForecastModel(object):
         plt.savefig(save,dpi=300)
         plt.close(fig)
 
+def save_dataframe(df, fl, index=True, index_label=None):
+    if fl.endswith('.csv'):
+        df.to_csv(fl, index=index, index_label=index_label)
+    elif fl.endswith('.pkl'):
+        fp = open(fl, 'wb')
+        pickle.dump(df,fp)
+    else:
+        raise ValueError('only csv and pkl file formats supported')
+
+def load_dataframe(fl, index_col=None, parse_dates=False, usecols=None, infer_datetime_format=False, 
+    nrows=None, header='infer', skiprows=None):
+    if fl.endswith('.csv'):
+        df = pd.read_csv(fl, index_col=index_col, parse_dates=parse_dates, usecols=usecols, infer_datetime_format=infer_datetime_format,
+            nrows=nrows, header=header, skiprows=skiprows)
+    elif fl.endswith('.pkl'):
+        fp = open(fl, 'rb')
+        df = pickle.load(fp)
+        if usecols is not None:
+            if len(usecols) == 1 and usecols[0] == df.index.name:
+                df = df[df.columns[0]]
+            else:
+                df = df[usecols]
+        if nrows is not None:
+            if skiprows is None: skiprows = range(1,1)
+            skiprows = list(skiprows)
+            inds = sorted(set(range(len(skiprows)+nrows)) - set(skiprows))
+            df = df.iloc[inds]
+        elif skiprows is not None:
+            df = df.iloc[skiprows:]
+    else:
+        raise ValueError('only csv and pkl file formats supported')
+    return df
+
 def get_classifier(classifier):
     """ Return scikit-learn ML classifiers and search grids for input strings.
 
@@ -1691,7 +1743,8 @@ def get_data_for_day(i,t0):
     datas = np.array(datas)
     time = [(ti+j*600).datetime for j in range(datas.shape[1])]
     df = pd.DataFrame(zip(*datas), columns=names, index=pd.Series(time))
-    df.to_csv('_tmp/_tmp_fl_{:05d}.dat'.format(i), index=True, index_label='time')
+    # df.to_csv('_tmp/_tmp_fl_{:05d}.csv'.format(i), index=True, index_label='time')
+    save_dataframe(df, '_tmp/_tmp_fl_{:05d}.{:s}'.format(i,self.savefile_type), index=True, index_label='time')
 
 def update_geonet_data():
     """ Download latest GeoNet data for WIZ.
@@ -1744,7 +1797,8 @@ def predict_one_model(fM, model_path, pref, flp):
     
     # save prediction
     ypdf = pd.DataFrame(yp, columns=['pred{:s}'.format(num)], index=fM.index)
-    ypdf.to_csv(fl, index=True, index_label='time')
+    # ypdf.to_csv(fl, index=True, index_label='time')
+    save_dataframe(ypdf, fl, index=True, index_label='time')
     return ypdf
 
 def datetimeify(t):

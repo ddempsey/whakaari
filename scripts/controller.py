@@ -93,7 +93,7 @@ class Alert(object):
         self.post(msg, media)
     def post_startupdate(self, msg=-1, media=-1):
         if msg ==-1: msg = 'Waking up.'
-        if media ==-1: media = 'current_forecast.png'
+        if media ==-1: media = None
         self.post(msg, media)
     def post_open_alert(self, msg=-1, media=-1):
         if msg ==-1: 

@@ -40,7 +40,7 @@ def forecast_dec2019():
     # and will intermittantly save progress in ../features/
     # trained scikit-learn models will be saved to ../models/*root*/
     te = td.tes[-1]
-    fm.train(ti='2011-01-01', tf='2020-01-01', drop_features=drop_features, retrain=True, 
+    fm.train(ti='2011-01-01', tf='2020-01-01', drop_features=drop_features, retrain=False, 
         exclude_dates=[[te-month,te+month],], n_jobs=n_jobs)      
 
     # run forecast from 2011 to 2020
@@ -67,10 +67,10 @@ def forecast_test():
     # set up model
     data_streams = ['rsam','mf','hf','dsar']
     fm = ForecastModel(ti='2012-04-01', tf='2012-10-01', window=2., overlap=0.75, 
-        look_forward=2., data_streams=data_streams, root='test')
+        look_forward=2., data_streams=data_streams, root='test', savefile_ext='hdf')
     
     # set the available CPUs higher or lower as appropriate
-    n_jobs = 6
+    n_jobs = 1
     
     # train the model
     drop_features = ['linear_trend_timewise','agg_linear_trend']
@@ -108,7 +108,7 @@ def forecast_now():
     # to *root*_features.csv)
     drop_features = ['linear_trend_timewise','agg_linear_trend']
     fm.train(ti='2011-01-01', tf='2020-01-01', drop_features=drop_features, 
-        retrain=False, n_jobs=n_jobs)      
+        retrain=True, n_jobs=n_jobs)      
     
     # forecast the last 7 days at high resolution
     fm.hires_forecast(ti=fm.data.tf - 7*day, tf=fm.data.tf, recalculate=True, 
