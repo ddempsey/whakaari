@@ -193,7 +193,6 @@ class Controller(object):
                 command.append('update_forecast_test')
             # spawn subprocess
             with open("whakaari_stdout.txt","wb") as out, open("whakaari_stderr.txt","wb") as err:
-                p=Popen("ls",stdout=out,stderr=err)
                 p=Popen(command, stdout=out, stderr=err)
                 p.communicate()
                 

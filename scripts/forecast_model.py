@@ -79,7 +79,14 @@ def forecast_test():
 
     # plot a forecast for a future eruption
     te = fm.data.tes[1]
-    fm.hires_forecast(ti=te-fm.dtw-fm.dtf, tf=te+month/30, recalculate=True, 
+    tf = te+month/30
+    fm.hires_forecast(ti=te-fm.dtw-fm.dtf, tf=tf, recalculate=True, 
+        save=r'{:s}/forecast_Aug2013.png'.format(fm.plotdir), n_jobs=n_jobs)
+
+    
+    te = fm.data.tes[1]
+    tf = te+month/30*2.
+    fm.hires_forecast(ti=te-fm.dtw-fm.dtf, tf=tf, recalculate=False, 
         save=r'{:s}/forecast_Aug2013.png'.format(fm.plotdir), n_jobs=n_jobs)
 
 def forecast_now():

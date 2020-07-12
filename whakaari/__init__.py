@@ -576,7 +576,7 @@ class ForecastModel(object):
         makedir(self.featdir)
 
         # number of windows in feature request
-        Nw = int(np.floor(((tf-ti)/self.dt)/(self.iw-self.io)))
+        Nw = int(np.floor(((tf-ti)/self.dt)/(self.iw-self.io)))+1
 
         # features to compute
         cfp = ComprehensiveFCParameters()
@@ -1106,27 +1106,32 @@ class ForecastModel(object):
         fls = glob('{:s}/{:s}_*.pkl'.format(model_path, pref))
         load_predictions = []
         run_predictions = []
+        ys = []
         if recalculate:
-            run_predictions = fls
+            run_predictions = [(rp, rp.replace(model_path, self.preddir+os.sep).replace('.pkl','.{:s}'.format(self.savefile_type))) for rp in fls]
         else:
             for fl in fls:
                 num = fl.split(os.sep)[-1].split('_')[-1].split('.')[0]
                 flp = '{:s}/{:s}_{:s}.{:s}'.format(self.preddir, pref, num, self.savefile_type)
                 if not os.path.isfile(flp):
-                    run_predictions.append(flp)
+                    run_predictions.append([fl, flp])
                 else:
-                    load_predictions.append(flp)
+                    y = load_dataframe(flp, index_col=0, parse_dates=['time'], infer_datetime_format=True)
+                    if y.index[-1] < self.tf_forecast:
+                        run_predictions.append([fl, flp])
+                    else:
+                        ys.append(y)
 
-        ys = []            
-        # load existing predictions
-        for fl in load_predictions:
-            # y = pd.read_csv(fl, index_col=0, parse_dates=['time'], infer_datetime_format=True)
-            y = load_dataframe(fl, index_col=0, parse_dates=['time'], infer_datetime_format=True)
-            ys.append(y)
+        # ys = []            
+        # # load existing predictions
+        # for fl in load_predictions:
+        #     # y = pd.read_csv(fl, index_col=0, parse_dates=['time'], infer_datetime_format=True)
+        #     y = load_dataframe(fl, index_col=0, parse_dates=['time'], infer_datetime_format=True)
+        #     ys.append(y)
 
         # generate new predictions
         if len(run_predictions)>0:
-            run_predictions = [(rp, rp.replace(model_path, self.preddir+os.sep).replace('.pkl','.{:s}'.format(self.savefile_type))) for rp in run_predictions]
+            # run_predictions = [(rp, rp.replace(model_path, self.preddir+os.sep).replace('.pkl','.{:s}'.format(self.savefile_type))) for rp in run_predictions]
 
             # load feature matrix
             fM,_ = self._extract_features(self.ti_forecast, self.tf_forecast)
@@ -1140,6 +1145,7 @@ class ForecastModel(object):
             f = partial(predict_one_model, fM, model_path, pref)
 
             # train models with glorious progress bar
+            f(run_predictions[0])
             for i, y in enumerate(mapper(f, run_predictions)):
                 cf = (i+1)/len(run_predictions)
                 print(f'forecasting: [{"#"*round(50*cf)+"-"*round(50*(1-cf))}] {100.*cf:.2f}%\r', end='') 
@@ -1313,8 +1319,10 @@ class ForecastModel(object):
         ax2 = plt.axes([0.1, 0.08, 0.8, 0.4])
         t = pd.to_datetime(ys.index.values)
         rsam = self.data.get_data(t[0], t[-1])['rsam']
+        trsam = rsam.index
         if nztimezone:
             t = to_nztimezone(t)
+            trsam = to_nztimezone(trsam)
             ax2.set_xlabel('Local time')
         else:
             ax2.set_xlabel('UTC')
@@ -1334,7 +1342,7 @@ class ForecastModel(object):
             # modelled alert
             ax.plot(t, y*100, 'c-', label='eruption consensus', zorder=4, lw=0.75)
             ax_ = ax.twinx()
-            ax_.plot(t[:-1], rsam*1.e-3, 'k-', lw=0.75)
+            ax_.plot(trsam, rsam.values*1.e-3, 'k-', lw=0.75)
             ax_.set_ylabel('RSAM [$\mu$m s$^{-1}$]')
 
             for tii,yi in zip(t, y):
@@ -1353,8 +1361,8 @@ class ForecastModel(object):
         ax2.set_xticklabels(lxts)
         tfi  = self.data.tf
         if nztimezone:
-            tfi = to_nztimezone([tfi])
-        ax2.text(0.025, 0.95, 'last updated {:s}'.format(tfi[0].strftime('%H:%M, %d %b %Y')), size = 12, ha = 'left', 
+            tfi = to_nztimezone([tfi])[0]
+        ax2.text(0.025, 0.95, 'last updated {:s}'.format(tfi.strftime('%H:%M, %d %b %Y')), size = 12, ha = 'left', 
             va = 'top', transform=ax2.transAxes)
         
         t0 = datetimeify('2020-01-01')
@@ -1802,17 +1810,30 @@ def train_one_model(fM, ys, Nfts, modeldir, classifier, retrain, random_seed, ra
 
 def predict_one_model(fM, model_path, pref, flp):
     flp,fl = flp
+
+    if os.path.isfile(fl):
+        ypdf0 = load_dataframe(fl, index_col='time', infer_datetime_format=True, parse_dates=['time'])
+
     num = flp.split(os.sep)[-1].split('.')[0].split('_')[-1]
     model = joblib.load(flp)
     with open(model_path+'{:s}.fts'.format(num)) as fp:
         lns = fp.readlines()
     fts = [' '.join(ln.rstrip().split()[1:]) for ln in lns]            
     
-    # simulate predicton period
-    yp = model.predict(fM[fts])
-    
-    # save prediction
-    ypdf = pd.DataFrame(yp, columns=['pred{:s}'.format(num)], index=fM.index)
+    if not os.path.isfile(fl):
+        # simulate predicton period
+        yp = model.predict(fM[fts])
+        # save prediction
+        ypdf = pd.DataFrame(yp, columns=['pred{:s}'.format(num)], index=fM.index)
+    else:
+        fM2 = fM.loc[fM.index>ypdf0.index[-1], fts]
+        if fM2.shape[0] == 0:
+            ypdf = ypdf0
+        else:
+            yp = model.predict(fM2)
+            ypdf = pd.DataFrame(yp, columns=['pred{:s}'.format(num)], index=fM2.index)
+            ypdf = pd.concat([ypdf0, ypdf])
+
     # ypdf.to_csv(fl, index=True, index_label='time')
     save_dataframe(ypdf, fl, index=True, index_label='time')
     return ypdf
