@@ -1,6 +1,6 @@
 import os, sys
 sys.path.insert(0, os.path.abspath('..'))
-from whakaari import TremorData, ForecastModel
+from whakaari import TremorData, ForecastModel, load_dataframe
 from datetime import timedelta, datetime
 
 # tsfresh and sklearn dump a lot of warnings - these are switched off below, but should be
@@ -78,14 +78,13 @@ def forecast_test():
         n_jobs=n_jobs)      
 
     # plot a forecast for a future eruption
-    te = fm.data.tes[1]
-    tf = te+month/30
-    fm.hires_forecast(ti=te-fm.dtw-fm.dtf, tf=tf, recalculate=True, 
-        save=r'{:s}/forecast_Aug2013.png'.format(fm.plotdir), n_jobs=n_jobs)
+    # tf = te+month/30
+    # fm.hires_forecast(ti=te-fm.dtw-fm.dtf, tf=tf, recalculate=True, 
+    #     save=r'{:s}/forecast_Aug2013.png'.format(fm.plotdir), n_jobs=n_jobs)
 
-    
     te = fm.data.tes[1]
-    tf = te+month/30*2.
+    y = load_dataframe(r'D:\code\whakaari\predictions\test_hires\DecisionTreeClassifier_0000.pkl')
+    tf = y.index[-1] + month/30./10.
     fm.hires_forecast(ti=te-fm.dtw-fm.dtf, tf=tf, recalculate=False, 
         save=r'{:s}/forecast_Aug2013.png'.format(fm.plotdir), n_jobs=n_jobs)
 

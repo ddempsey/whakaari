@@ -1109,18 +1109,23 @@ class ForecastModel(object):
         ys = []
         if recalculate:
             run_predictions = [(rp, rp.replace(model_path, self.preddir+os.sep).replace('.pkl','.{:s}'.format(self.savefile_type))) for rp in fls]
+            ti = self.ti_forecast
         else:
+            tis = []
             for fl in fls:
                 num = fl.split(os.sep)[-1].split('_')[-1].split('.')[0]
                 flp = '{:s}/{:s}_{:s}.{:s}'.format(self.preddir, pref, num, self.savefile_type)
                 if not os.path.isfile(flp):
                     run_predictions.append([fl, flp])
+                    tis.append(self.ti_forecast)
                 else:
                     y = load_dataframe(flp, index_col=0, parse_dates=['time'], infer_datetime_format=True)
                     if y.index[-1] < self.tf_forecast:
                         run_predictions.append([fl, flp])
+                        tis.append(y.index[-1])
                     else:
                         ys.append(y)
+            ti = np.min(tis)
 
         # ys = []            
         # # load existing predictions
@@ -1134,7 +1139,7 @@ class ForecastModel(object):
             # run_predictions = [(rp, rp.replace(model_path, self.preddir+os.sep).replace('.pkl','.{:s}'.format(self.savefile_type))) for rp in run_predictions]
 
             # load feature matrix
-            fM,_ = self._extract_features(self.ti_forecast, self.tf_forecast)
+            fM,_ = self._extract_features(ti, self.tf_forecast)
 
             # setup predictor
             if self.n_jobs > 1:
