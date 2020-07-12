@@ -307,7 +307,7 @@ def update_forecast():
             retrain=False, n_jobs=1)      
         
         # forecast from beginning of training period at high resolution
-        ys = fm.hires_forecast(ti=datetimeify('2020-01-01'), tf=fm.data.tf, recalculate=True, 
+        ys = fm.hires_forecast(ti=datetimeify('2020-01-01'), tf=fm.data.tf, recalculate=False, 
             save='current_forecast.png', nztimezone=True, n_jobs=1) 
 
         tf = datetime.utcnow()
