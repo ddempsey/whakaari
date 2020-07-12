@@ -88,7 +88,7 @@ class Alert(object):
         except:
             pass
     def post_no_alert(self, msg=-1, media=-1):
-        if msg ==-1: msg = 'All quiet.'
+        if msg ==-1: msg = 'No alert.'
         if media ==-1: media = 'current_forecast.png'
         self.post(msg, media)
     def post_startupdate(self, msg=-1, media=-1):
@@ -272,7 +272,7 @@ def rebuild_hires_features():
     day = timedelta(days=1)
     for i in range(1,Ndays-1):
         # forecast from beginning of training period at high resolution
-        fm.hires_forecast(ti=datetimeify('2020-01-01'), tf=tf0+i*day, recalculate=True, 
+        fm.hires_forecast(ti=datetimeify('2020-03-01'), tf=tf0+i*day, recalculate=True, 
             save='current_forecast.png', nztimezone=True, save_alerts='alert.csv', n_jobs=1) 
         
 def update_forecast():
