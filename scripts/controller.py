@@ -285,6 +285,9 @@ def update_forecast():
         # pull the latest data from GeoNet
         td = TremorData()
         td.update()
+
+        td0 = TremorData(station='WSRZ')
+        td0.update()
     except Exception:
         fp = open('update_geonet.err','w')
         fp.write('{:s}\n'.format(traceback.format_exc()))
@@ -308,7 +311,7 @@ def update_forecast():
         
         # forecast from beginning of training period at high resolution
         ys = fm.hires_forecast(ti=datetimeify('2020-01-01'), tf=fm.data.tf, recalculate=False, 
-            save='current_forecast.png', nztimezone=True, n_jobs=1) 
+            save='current_forecast.png', nztimezone=True, n_jobs=1, alt_rsam=td0.df['rsam']) 
 
         tf = datetime.utcnow()
         al = (ys['consensus'].values[ys.index>(tf-fm.dtf)] > 0.8)*1.
@@ -342,6 +345,9 @@ def Key(keyfile):
     return dict([ln.strip().split(':') for ln in lns]) 
 
 if __name__ == "__main__":  
+
+    update_forecast()
+    asdf
     # set parameters
     keyfile = r'/home/ubuntu/twitter_keys.txt'
     mail_from = 'noreply.whakaariforecaster@gmail.com'
