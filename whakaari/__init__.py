@@ -186,7 +186,7 @@ class TremorData(object):
         ndays = (tf-ti).days
 
         # parallel data collection - creates temporary files in ./_tmp
-        pars = [[i,ti,station] for i in range(ndays)]
+        pars = [[i,ti,self.station] for i in range(ndays)]
         p = Pool(6)
         p.starmap(get_data_for_day, pars)
         p.close()
@@ -1341,8 +1341,8 @@ class ForecastModel(object):
         
         ts = [t[-1], trsam[-1]]
         if alt_rsam is not None: ts.append(alt_trsam[-1])
-        tmax = np.max(alt_rsam)
-        ax2.set_xlim(tmax-timedelta(days=7), tmax])
+        tmax = np.max(ts)
+        ax2.set_xlim([tmax-timedelta(days=7), tmax])
         ax1.set_xlim([t[0], tmax])
         ax1.set_title('Whakaari Eruption Forecast')
         for ax in [ax1,ax2]:
