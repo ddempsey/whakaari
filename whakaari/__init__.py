@@ -1368,8 +1368,8 @@ class ForecastModel(object):
             ax.fill_between([], [], [], color='y', label='eruption forecast')
             ax.plot([],[],'k-', lw=0.75, label='RSAM')
             if alt_rsam is not None:
-                ax.plot([],[],'-', color=[0.5,0.5,0.5], lw=0.75, label='RSAM (WSRZ)')
-        ax1.legend(loc=1)
+                ax.plot([],[],'-', color=[0.5,0.5,0.5], lw=0.75, label='RSAM (WSRZ-scaled)')
+        ax1.legend(loc=1, ncol=2)
         
         tf = t[-1]
         t0 = tf.replace(hour=0, minute=0, second=0)

@@ -310,10 +310,21 @@ def update_forecast():
             retrain=False, n_jobs=1)      
         
         # forecast from beginning of training period at high resolution
-        ys = fm.hires_forecast(ti=datetimeify('2020-01-01'), tf=fm.data.tf, recalculate=False, 
-            save='current_forecast.png', nztimezone=True, n_jobs=1, alt_rsam=td0.df['rsam']) 
-
         tf = datetime.utcnow()
+        if (tf - td.df.index[-1])>(day/6):
+            data = np.log10(td.get_data()['rsam'].values)
+            mean0,std0 = np.mean(data), np.std(data)
+            # scale WSRZ
+            data = td0.df['rsam'].dropna()
+            data = data[data>1.e-5]
+            data = np.log10(data.values)
+            mean,std = np.mean(data), np.std(data)
+            alt_rsam = 10**((np.log10(td0.df['rsam'])-mean)/std*std0+mean0)
+        else:
+            alt_rsam = None
+        ys = fm.hires_forecast(ti=datetimeify('2020-01-01'), tf=fm.data.tf, recalculate=False, 
+            save='current_forecast.png', nztimezone=True, n_jobs=1, alt_rsam=alt_rsam) 
+
         al = (ys['consensus'].values[ys.index>(tf-fm.dtf)] > 0.8)*1.
         if len(al) == 0:
             in_alert = -1
@@ -345,10 +356,7 @@ def Key(keyfile):
     return dict([ln.strip().split(':') for ln in lns]) 
 
 if __name__ == "__main__":  
-
-    update_forecast()
-    asdf
-    # set parameters
+  # set parameters
     keyfile = r'/home/ubuntu/twitter_keys.txt'
     mail_from = 'noreply.whakaariforecaster@gmail.com'
     mail_to = ['d.dempsey@auckland.ac.nz']
