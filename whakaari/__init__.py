@@ -1125,7 +1125,8 @@ class ForecastModel(object):
                         tis.append(y.index[-1])
                     else:
                         ys.append(y)
-            ti = np.min(tis)
+            if len(tis)>0:
+                ti = np.min(tis)
 
         # ys = []            
         # # load existing predictions
