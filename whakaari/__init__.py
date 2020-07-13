@@ -84,8 +84,9 @@ class TremorData(object):
         plot
             Plot tremor data.
     """
-    def __init__(self):
-        self.file = os.sep.join(getfile(currentframe()).split(os.sep)[:-2]+['data','tremor_data.csv'])
+    def __init__(self, station='WIZ'):
+        self.station = station
+        self.file = os.sep.join(getfile(currentframe()).split(os.sep)[:-2]+['data','{:s}_tremor_data.csv'.format(station)])
         self._assess()
     def __repr__(self):
         if self.exists:
@@ -185,7 +186,7 @@ class TremorData(object):
         ndays = (tf-ti).days
 
         # parallel data collection - creates temporary files in ./_tmp
-        pars = [[i,ti] for i in range(ndays)]
+        pars = [[i,ti,station] for i in range(ndays)]
         p = Pool(6)
         p.starmap(get_data_for_day, pars)
         p.close()
@@ -1175,7 +1176,7 @@ class ForecastModel(object):
 
         return forecast
     def hires_forecast(self, ti, tf, recalculate=True, save=None, root=None, nztimezone=False, 
-        n_jobs=6, threshold=0.8):
+        n_jobs=6, threshold=0.8, alt_rsam=None):
         """ Construct forecast at resolution of data.
 
             Parameters:
@@ -1220,7 +1221,7 @@ class ForecastModel(object):
         ys = _fm.forecast(ti, tf, recalculate, use_model=self.modeldir)
         
         if save is not None:
-            self._plot_hires_forecast(ys, save, threshold, nztimezone=nztimezone)
+            self._plot_hires_forecast(ys, save, threshold, nztimezone=nztimezone, alt_rsam=alt_rsam)
 
         return ys
     # plotting methods
@@ -1306,7 +1307,7 @@ class ForecastModel(object):
         
         plt.savefig(save, dpi=400)
         plt.close(f)
-    def _plot_hires_forecast(self, ys, save, threshold=0.75, nztimezone=False):
+    def _plot_hires_forecast(self, ys, save, threshold=0.75, nztimezone=False, alt_rsam=None):
         """ Plot model hires version of model forecast (single axes).
 
             Parameters:
@@ -1326,30 +1327,39 @@ class ForecastModel(object):
         t = pd.to_datetime(ys.index.values)
         rsam = self.data.get_data(t[0], t[-1])['rsam']
         trsam = rsam.index
+        if alt_rsam is not None:
+            alt_trsam = alt_rsam.index
         if nztimezone:
             t = to_nztimezone(t)
             trsam = to_nztimezone(trsam)
             ax2.set_xlabel('Local time')
+            if alt_rsam is not None:
+                alt_trsam = to_nztimezone(alt_trsam)
         else:
             ax2.set_xlabel('UTC')
         y = np.mean(np.array([ys[col] for col in ys.columns]), axis=0)
         
-        ax2.set_xlim([t[-1]-timedelta(days=7), t[-1]])
-        ax1.set_xlim([t[0], t[-1]])
+        ts = [t[-1], trsam[-1]]
+        if alt_rsam is not None: ts.append(alt_trsam[-1])
+        tmax = np.max(alt_rsam)
+        ax2.set_xlim(tmax-timedelta(days=7), tmax])
+        ax1.set_xlim([t[0], tmax])
         ax1.set_title('Whakaari Eruption Forecast')
         for ax in [ax1,ax2]:
-            ax.set_ylim([-5, 105])
-            ax.set_yticks([0,25,50,75,100])
+            ax.set_ylim([-0.05, 1.05])
+            ax.set_yticks([0,0.25,0.50,0.75,1.00])
             ax.set_ylabel('eruption consensus')
         
             # consensus threshold
-            ax.axhline(threshold*100, color='k', linestyle=':', label='alert threshold', zorder=4)
+            ax.axhline(threshold, color='k', linestyle=':', label='alert threshold', zorder=4)
 
             # modelled alert
-            ax.plot(t, y*100, 'c-', label='eruption consensus', zorder=4, lw=0.75)
+            ax.plot(t, y, 'c-', label='ensemble mean', zorder=4, lw=0.75)
             ax_ = ax.twinx()
             ax_.plot(trsam, rsam.values*1.e-3, 'k-', lw=0.75)
             ax_.set_ylabel('RSAM [$\mu$m s$^{-1}$]')
+            if alt_rsam is not None:
+                ax_.plot(alt_trsam, alt_rsam.values*1.e-3, '-', color=[0.5,0.5,0.5], lw=0.75)
 
             for tii,yi in zip(t, y):
                 if yi > threshold:
@@ -1357,6 +1367,8 @@ class ForecastModel(object):
                     
             ax.fill_between([], [], [], color='y', label='eruption forecast')
             ax.plot([],[],'k-', lw=0.75, label='RSAM')
+            if alt_rsam is not None:
+                ax.plot([],[],'-', color=[0.5,0.5,0.5], lw=0.75, label='RSAM (WSRZ)')
         ax1.legend(loc=1)
         
         tf = t[-1]
@@ -1368,7 +1380,7 @@ class ForecastModel(object):
         tfi  = self.data.tf
         if nztimezone:
             tfi = to_nztimezone([tfi])[0]
-        ax2.text(0.025, 0.95, 'last updated {:s}'.format(tfi.strftime('%H:%M, %d %b %Y')), size = 12, ha = 'left', 
+        ax2.text(0.025, 0.95, 'model last updated {:s}'.format(tfi.strftime('%H:%M, %d %b %Y')), size = 12, ha = 'left', 
             va = 'top', transform=ax2.transAxes)
         
         t0 = datetimeify('2020-01-01')
@@ -1699,7 +1711,7 @@ def get_classifier(classifier):
     
     return model, grid
 
-def get_data_for_day(i,t0):
+def get_data_for_day(i,t0,station):
     """ Download WIZ data for given 24 hour period, writing data to temporary file.
 
         Parameters:
@@ -1723,12 +1735,12 @@ def get_data_for_day(i,t0):
     # download data
     datas = []
     try:
-        site = client.get_stations(starttime=t0+i*daysec, endtime=t0 + (i+1)*daysec, station='WIZ', level="response", channel="HHZ")
+        site = client.get_stations(starttime=t0+i*daysec, endtime=t0 + (i+1)*daysec, station=station, level="response", channel="HHZ")
     except FDSNNoDataException:
         pass
 
     try:
-        WIZ = client.get_waveforms('NZ','WIZ', "10", "HHZ", t0+i*daysec, t0 + (i+1)*daysec)
+        WIZ = client.get_waveforms('NZ',station, "10", "HHZ", t0+i*daysec, t0 + (i+1)*daysec)
         
         # if less than 1 day of data, try different client
         if len(WIZ.traces[0].data) < 600*100:
@@ -1737,7 +1749,7 @@ def get_data_for_day(i,t0):
         return
     except FDSNNoDataException:
         try:
-            WIZ = client_nrt.get_waveforms('NZ','WIZ', "10", "HHZ", t0+i*daysec, t0 + (i+1)*daysec)
+            WIZ = client_nrt.get_waveforms('NZ',station, "10", "HHZ", t0+i*daysec, t0 + (i+1)*daysec)
         except FDSNNoDataException:
             return
 
