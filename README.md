@@ -1,5 +1,5 @@
 # Whakaari
-Eruption forecast model for Whakaari (White Island, New Zealand). This model implements a time series feature engineering and classification workflow that issues eruption alerts based on real-time tremor data.
+Eruption forecast model for Whakaari (White Island, New Zealand). This model implements a time series feature engineering and classification workflow that issues eruption alerts based on real-time tremor data. More details in the [paper](https://www.nature.com/articles/s41467-020-17375-2).
 
 ## Installation
 
