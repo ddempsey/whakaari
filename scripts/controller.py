@@ -168,6 +168,7 @@ class Controller(object):
         self.alert.post_startupdate()
 
         update_geonet_err_count = 0                     # counter to allow Nmax geonet update errors
+        current_forecast_err_count = 0
         geonet_err_max = 24*6 
         if not self.test:
             heartbeat_update = 24*3600
@@ -220,11 +221,15 @@ class Controller(object):
 
             # copy files
             if not os.path.isfile('current_forecast.png'):
-                with open('controller.err','w') as fp:
-                    fp.write("'current_forecast.png' was not generated")
-                self.alert.debug_problem = True
-                errors.append('controller.err')
+                if current_forecast_err_count < 5:
+                    current_forecast_err_count += 1
+                else:
+                    with open('controller.err','w') as fp:
+                        fp.write("'current_forecast.png' was not generated")
+                    self.alert.debug_problem = True
+                    errors.append('controller.err')
             else:
+                current_forecast_err_count = 0
                 shutil.copyfile('current_forecast.png','/var/www/html/current_forecast.png')
 
             # send alerts
