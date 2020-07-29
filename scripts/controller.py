@@ -22,10 +22,11 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=FitFailedWarning)
 
 class Alert(object):
-    def __init__(self, mail_from, mail_to, keyfile):
+    def __init__(self, mail_from, monitor_mail_to, alert_mail_to, keyfile):
         # notification settings
         self.mail_from = mail_from
-        self.mail_to = mail_to
+        self.monitor_mail_to = monitor_mail_to
+        self.alert_mail_to = alert_mail_to
         self.key = Key(keyfile)
         # alert settings
         self.reset()
@@ -113,7 +114,7 @@ class Alert(object):
     # Emailing
     def send_startup_email(self):
         yag = yagmail.SMTP(self.mail_from)
-        yag.send(to=self.mail_to,subject='starting up',contents='whakaari forecaster is starting up',attachments=None)
+        yag.send(to=self.monitor_mail_to,subject='starting up',contents='whakaari forecaster is starting up',attachments=None)
     def send_email_alerts(self):
         """ sends email alerts if appropriate
         """
@@ -129,12 +130,14 @@ class Alert(object):
                 'Based on historical activity, the probability of an eruption occuring during an alert is about 10%.',
                 {yagmail.inline('./current_forecast.png'):'Forecast_{:s}.png'.format(self.time_local.strftime('%Y%m%d-%H%M%S'))},]
             attachment = None
+            mail_to = self.alert_mail_to
         elif self.new_system_down:
             subject = "Whakaari Eruption Forecast: Not receiving data"
             message = "Whakaari Eruption Forecast model is not receiving new data. Forecasting is suspended. Latest forecast is attached."
             fcstfile = 'WhakaariForecast_latest.png'
             shutil.copyfile('current_forecast.png',fcstfile)
             attachment = fcstfile
+            mail_to = self.monitor_mail_to
         elif self.debug_problem:
             subject = "Whakaari Eruption Forecast: System Raising Errors"
             message = "Whakaari Eruption Forecast model is raising errors. Summary below."
@@ -143,23 +146,25 @@ class Alert(object):
                     lns = fp.readlines()
                 message += '\n{:s}\n{:s}\n'.format(err, ''.join(lns))
             attachment = self.errors
+            mail_to = self.monitor_mail_to
         elif self.heartbeat:
             subject = "Whakaari Eruption Forecast is working hard for YOU!"
             message = "All is well here. Have a great day."
             attachment = None
+            mail_to = self.monitor_mail_to
 
         yag = yagmail.SMTP(self.mail_from)
         yag.send(
-            to=self.mail_to,
+            to=mail_to,
             subject=subject,
             contents=message, 
             attachments=attachment,
         )
             
 class Controller(object):
-    def __init__(self, mail_from, mail_to, keyfile, test=False):
+    def __init__(self, mail_from, monitor_mail_to, alert_mail_to, keyfile, test=False):
         self.test = test
-        self.alert = Alert(mail_from,mail_to,keyfile)
+        self.alert = Alert(mail_from,monitor_mail_to,alert_mail_to,keyfile)
     def run(self):
         """ Top-level function to update forecast.
         """
@@ -209,6 +214,8 @@ class Controller(object):
                 else:
                     # update count
                     update_geonet_err_count += 1
+                    wait = 600 - (time() - t0)
+                    if wait > 0: sleep(wait)
             else:
                 # reset counter
                 update_geonet_err_count = 0
@@ -364,7 +371,19 @@ if __name__ == "__main__":
   # set parameters
     keyfile = r'/home/ubuntu/twitter_keys.txt'
     mail_from = 'noreply.whakaariforecaster@gmail.com'
-    mail_to = ['d.dempsey@auckland.ac.nz']
+    
+    # heartbeat and error raising emails
+    monitor_mail_to_file = r'/home/ubuntu/whakaari_monitor_mail_to.txt'
+    with open(monitor_mail_to_file, 'r') as fp:
+        lns = fp.readlines()
+    monitor_mail_to = [ln.strip() for ln in lns]
+    
+    # forecast alert emails
+    alert_mail_to_file = r'/home/ubuntu/whakaari_alert_mail_to.txt'
+    with open(alert_mail_to_file, 'r') as fp:
+        lns = fp.readlines()
+    alert_mail_to = [ln.strip() for ln in lns]
+
     parser = argparse.ArgumentParser()
     parser.add_argument("-m", 
         type=str,
@@ -372,7 +391,7 @@ if __name__ == "__main__":
         help="flag indicating how controller is to run")
     args = parser.parse_args()
     if args.m == 'controller':
-        controller = Controller(mail_from, mail_to, keyfile)
+        controller = Controller(mail_from, monitor_mail_to, alert_mail_to, keyfile)
         controller.run()
     elif args.m == 'controller-test':
         controller = Controller(mail_from, mail_to, keyfile, test=True)
