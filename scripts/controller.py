@@ -394,7 +394,7 @@ if __name__ == "__main__":
         controller = Controller(mail_from, monitor_mail_to, alert_mail_to, keyfile)
         controller.run()
     elif args.m == 'controller-test':
-        controller = Controller(mail_from, mail_to, keyfile, test=True)
+        controller = Controller(mail_from, monitor_mail_to, alert_mail_to, keyfile, test=True)
         controller.run()
     elif args.m == 'update_forecast':
         update_forecast()
