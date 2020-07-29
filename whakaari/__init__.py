@@ -1348,7 +1348,7 @@ class ForecastModel(object):
         for ax in [ax1,ax2]:
             ax.set_ylim([-0.05, 1.05])
             ax.set_yticks([0,0.25,0.50,0.75,1.00])
-            ax.set_ylabel('eruption consensus')
+            ax.set_ylabel('ensemble mean')
         
             # consensus threshold
             ax.axhline(threshold, color='k', linestyle=':', label='alert threshold', zorder=4)
@@ -1356,10 +1356,12 @@ class ForecastModel(object):
             # modelled alert
             ax.plot(t, y, 'c-', label='ensemble mean', zorder=4, lw=0.75)
             ax_ = ax.twinx()
-            ax_.plot(trsam, rsam.values*1.e-3, 'k-', lw=0.75)
             ax_.set_ylabel('RSAM [$\mu$m s$^{-1}$]')
+            ax_.set_ylim([0,5])
+            ax_.set_xlim(ax.get_xlim())
             if alt_rsam is not None:
                 ax_.plot(alt_trsam, alt_rsam.values*1.e-3, '-', color=[0.5,0.5,0.5], lw=0.75)
+            ax_.plot(trsam, rsam.values*1.e-3, 'k-', lw=0.75)
 
             for tii,yi in zip(t, y):
                 if yi > threshold:
@@ -1371,7 +1373,7 @@ class ForecastModel(object):
                 ax.plot([],[],'-', color=[0.5,0.5,0.5], lw=0.75, label='RSAM (WSRZ-scaled)')
         ax1.legend(loc=1, ncol=2)
         
-        tf = t[-1]
+        tf = tmax 
         t0 = tf.replace(hour=0, minute=0, second=0)
         xts = [t0 - timedelta(days=i) for i in range(7)][::-1]
         lxts = [xt.strftime('%d %b') for xt in xts]
