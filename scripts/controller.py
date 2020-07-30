@@ -216,6 +216,7 @@ class Controller(object):
                     update_geonet_err_count += 1
                     wait = 600 - (time() - t0)
                     if wait > 0: sleep(wait)
+                    continue
             else:
                 # reset counter
                 update_geonet_err_count = 0
