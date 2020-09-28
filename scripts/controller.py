@@ -358,6 +358,23 @@ def update_forecast_test():
         fp.write('{:d}\n'.format(in_alert))
     shutil.copyfile('../current_forecast.png','current_forecast.png')
 
+def plot_date(dt):
+    td = TremorData()
+    dt = datetimeify(dt)
+    day = timedelta(days=1) 
+    # model from 2011 to present day (td.tf)
+    data_streams = ['rsam','mf','hf','dsar']
+    fm = ForecastModel(ti='2011-01-01', tf=td.tf, window=2, overlap=0.75,
+            look_forward=2, data_streams=data_streams, root='online_forecaster', savefile_type='pkl')
+
+    drop_features = ['linear_trend_timewise','agg_linear_trend']
+    fm.train(ti='2011-01-01', tf='2020-01-01', drop_features=drop_features, Ncl=500,
+        retrain=False, n_jobs=1)
+
+    # forecast from beginning of training period at high resolution
+    fm.hires_forecast(ti=datetimeify('2020-01-01'), tf=dt, recalculate=False,
+        save='forecast_{:s}.png'.format(dt.strftime('%Y%m%d')), nztimezone=True, n_jobs=1, xlim=[dt-7*day,dt])
+
 def clean():
     # remove files
     fls = ['current_forecast.png', 'run_forecast.err', 'update_geonet.err','controller.err']
@@ -401,6 +418,9 @@ if __name__ == "__main__":
         update_forecast()
     elif args.m == 'update_forecast_test':
         update_forecast_test()
+    elif args.m == 'plot_date':
+        plot_date('2020-09-18')
+        plot_date('2020-09-03') 
     elif args.m == 'rebuild_hires_features':
         rebuild_hires_features()
     

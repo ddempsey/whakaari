@@ -1176,7 +1176,7 @@ class ForecastModel(object):
 
         return forecast
     def hires_forecast(self, ti, tf, recalculate=True, save=None, root=None, nztimezone=False, 
-        n_jobs=6, threshold=0.8, alt_rsam=None):
+        n_jobs=6, threshold=0.8, alt_rsam=None, xlim=None):
         """ Construct forecast at resolution of data.
 
             Parameters:
@@ -1221,7 +1221,7 @@ class ForecastModel(object):
         ys = _fm.forecast(ti, tf, recalculate, use_model=self.modeldir)
         
         if save is not None:
-            self._plot_hires_forecast(ys, save, threshold, nztimezone=nztimezone, alt_rsam=alt_rsam)
+            self._plot_hires_forecast(ys, save, threshold, nztimezone=nztimezone, alt_rsam=alt_rsam, xlim=xlim)
 
         return ys
     # plotting methods
@@ -1307,7 +1307,7 @@ class ForecastModel(object):
         
         plt.savefig(save, dpi=400)
         plt.close(f)
-    def _plot_hires_forecast(self, ys, save, threshold=0.75, nztimezone=False, alt_rsam=None):
+    def _plot_hires_forecast(self, ys, save, threshold=0.75, nztimezone=False, alt_rsam=None, xlim=None):
         """ Plot model hires version of model forecast (single axes).
 
             Parameters:
@@ -1372,7 +1372,9 @@ class ForecastModel(object):
             if alt_rsam is not None:
                 ax.plot([],[],'-', color=[0.5,0.5,0.5], lw=0.75, label='RSAM (WSRZ-scaled)')
         ax1.legend(loc=1, ncol=2)
-        
+        if xlim is not None: 
+            ax2.set_xlim(xlim)
+            tmax = xlim[-1] 
         tf = tmax 
         t0 = tf.replace(hour=0, minute=0, second=0)
         xts = [t0 - timedelta(days=i) for i in range(7)][::-1]
