@@ -269,25 +269,207 @@ def rebuild_hires_features():
     ''' Call this once if the feature matrix file has been damaged and needs to be rebuilt without murdering memory
     '''
     # model from 2011 to present day (td.tf)
-    td = TremorData() 
+    station = 'WSRZ'
+    root = 'online_forecaster_'+station
+    td = TremorData(station=station) 
     data_streams = ['rsam','mf','hf','dsar']
-    fm = ForecastModel(ti='2011-01-01', tf=td.tf, window=2, overlap=0.75,  
-        look_forward=2, data_streams=data_streams, root='online_forecaster',savefile_type='pkl')
+    fm = ForecastModel(ti='2011-01-01', tf=td.tf, window=2, overlap=0.75, station=station,  
+        look_forward=2, data_streams=data_streams, root=root, savefile_type='pkl')
         
     drop_features = ['linear_trend_timewise','agg_linear_trend']
-    fm.train(ti='2011-01-01', tf='2020-01-01', drop_features=drop_features, Ncl=500,
+    fm.train(ti='2012-01-01', tf='2020-01-01', drop_features=drop_features, Ncl=500,
         retrain=False, n_jobs=1)    
         
-    t = pd.to_datetime(pd.read_csv('../features/online_forecaster_hires_features.csv', index_col=0, parse_dates=['time'], usecols=['time'], infer_datetime_format=True).index.values)
-    ti0,tf0 = t[0],t[-1]
+    fl = '../features/{:s}_hires_features.csv'.format(root)
+    if os.path.isfile(fl):
+        t = pd.to_datetime(pd.read_csv(fl, index_col=0, parse_dates=['time'], usecols=['time'], infer_datetime_format=True).index.values)
+        ti0,tf0 = t[0],t[-1]
+    else:
+        tf0 = datetimeify('2020-08-01')
     Ndays = int((fm.data.tf - tf0).total_seconds()/(24*3600))
     day = timedelta(days=1)
     for i in range(1,Ndays-1):
         # forecast from beginning of training period at high resolution
-        fm.hires_forecast(ti=datetimeify('2020-03-01'), tf=tf0+i*day, recalculate=False, 
-            save='current_forecast.png', nztimezone=True, save_alerts='alert.csv', n_jobs=1) 
+        fm.hires_forecast(ti=datetimeify('2020-08-01'), tf=tf0+i*day, recalculate=False, n_jobs=1) 
         
 def update_forecast():
+    ''' Update model forecast.
+    '''
+    try:
+        # constants
+        month = timedelta(days=365.25/12)
+        day = timedelta(days=1)
+            
+        # pull the latest data from GeoNet
+        td = TremorData(station='WIZ')
+        td.update()
+
+        td0 = TremorData(station='WSRZ')
+        td0.update()
+    except Exception:
+        fp = open('update_geonet.err','w')
+        fp.write('{:s}\n'.format(traceback.format_exc()))
+        fp.close()
+        return
+
+    try:
+        # model from 2011 to present day (td.tf)
+        data_streams = ['rsam','mf','hf','dsar']
+        fm = ForecastModel(ti='2011-01-01', tf=td.tf, window=2, overlap=0.75,  
+            look_forward=2, data_streams=data_streams, root='online_forecaster_WIZ',savefile_type='pkl')
+        fm0 = ForecastModel(ti='2012-01-01', tf=td0.tf, window=2, overlap=0.75,  
+            look_forward=2, data_streams=data_streams, root='online_forecaster_WSRZ',savefile_type='pkl')
+        
+        # The online forecaster is trained using all eruptions in the dataset. It only
+        # needs to be trained once, or again after a new eruption.
+        # (Hint: feature matrices can be copied from other models to avoid long recalculations
+        # providing they have the same window length and data streams. Copy and rename 
+        # to *root*_features.csv)
+        drop_features = ['linear_trend_timewise','agg_linear_trend']
+        fm.train(ti='2011-01-01', tf='2020-01-01', drop_features=drop_features, Ncl=500,
+            retrain=False, n_jobs=1)      
+        fm0.train(ti='2012-01-01', tf='2020-01-01', drop_features=drop_features, Ncl=500,
+            retrain=False, n_jobs=1)      
+        
+        # forecast from beginning of training period at high resolution
+        tf = datetime.utcnow()
+        ys = fm.hires_forecast(ti=datetimeify('2020-01-01'), tf=fm.data.tf, recalculate=False, n_jobs=1) 
+        ys0 = fm0.hires_forecast(ti=datetimeify('2020-01-01'), tf=fm0.data.tf, recalculate=False, n_jobs=1) 
+
+        plot_dashboard(ys,ys0,fm,fm0,'current_forecast.png')
+
+        al = (ys['consensus'].values[ys.index>(tf-fm.dtf)] > 0.8)*1.
+        al0 = (ys0['consensus'].values[ys0.index>(tf-fm0.dtf)] > 0.8)*1.
+        if len(al) == 0 and len(al0) == 0:
+            in_alert = -1
+        else:
+            in_alert = int(np.max([np.max(al0), np.max(al)]))
+        with open('alert.csv', 'w') as fp:                
+            fp.write('{:d}\n'.format(in_alert))
+            
+    except Exception:
+        fp = open('run_forecast.err','w')
+        fp.write('{:s}\n'.format(traceback.format_exc()))
+        fp.close()
+        return
+
+def plot_dashboard(ys,ys0,fm,fm0,save):
+    # parameters
+    threshold = 0.8
+    
+    # set up figures and axes
+    f = plt.figure(figsize=(16,8))
+    ax1 = plt.axes([0.08, 0.55, 0.4, 0.4])
+    ax2 = plt.axes([0.08, 0.08, 0.4, 0.4])
+    ax3 = plt.axes([0.56, 0.55, 0.4, 0.4])
+    ax4 = plt.axes([0.56, 0.08, 0.4, 0.4])
+    
+    t = pd.to_datetime(ys.index.values)
+    t0 = pd.to_datetime(ys0.index.values)
+    rsam = fm.data.get_data(t[0], t[-1])['rsam']
+    trsam = rsam.index
+    rsam0 = fm0.data.get_data(t0[0], t0[-1])['rsam']
+    trsam0 = rsam0.index
+    
+    t = to_nztimezone(t)
+    trsam = to_nztimezone(trsam)
+    t0 = to_nztimezone(t0)
+    trsam0 = to_nztimezone(trsam0)
+    
+    ts = [t[-1], trsam[-1]]
+    tmax = np.max(ts)
+    ts0 = [t0[-1], trsam0[-1]]
+    tmax0 = np.max(ts0)
+    
+    ax2.set_xlabel('Local time')
+    ax3.set_xlabel('Local time')
+    y = np.mean(np.array([ys[col] for col in ys.columns]), axis=0)
+    y0 = np.mean(np.array([ys0[col] for col in ys0.columns]), axis=0)
+    
+    ax2.set_xlim([tmax-timedelta(days=7), tmax])
+    ax3.set_xlim([tmax0-timedelta(days=7), tmax0])
+    ax1.set_xlim([t[0], np.max([tmax, tmax0])])
+    ax1.set_title('Whakaari Eruption Forecast')
+
+    for ax in [ax1,ax2]:
+        ax.set_ylim([-0.05, 1.05])
+        ax.set_yticks([0,0.25,0.50,0.75,1.00])
+        ax.set_ylabel('ensemble mean')
+    
+        # consensus threshold
+        ax.axhline(threshold, color='k', linestyle=':', label='alert threshold', zorder=4)
+
+        # modelled alert
+        ax.plot(t, y, 'c-', label='ensemble mean', zorder=4, lw=0.75)
+        ax_ = ax.twinx()
+        ax_.set_ylabel('RSAM [$\mu$m s$^{-1}$]')
+        ax_.set_ylim([0,5])
+        ax_.set_xlim(ax.get_xlim())
+        ax_.plot(trsam, rsam.values*1.e-3, 'k-', lw=0.75)
+
+        for tii,yi in zip(t, y):
+            if yi > threshold:
+                ax.fill_between([tii, tii+fm.dtf], [0,0], [100,100], color='y', zorder=3)
+                
+        ax.fill_between([], [], [], color='y', label='eruption forecast')
+        ax.plot([],[],'k-', lw=0.75, label='RSAM')
+    
+    ax1.legend(loc=1, ncol=2)
+
+    for ax in [ax3]:
+        ax.set_ylim([-0.05, 1.05])
+        ax.set_yticks([0,0.25,0.50,0.75,1.00])
+        ax.set_ylabel('ensemble mean')
+    
+        # consensus threshold
+        ax.axhline(threshold, color='k', linestyle=':', label='alert threshold', zorder=4)
+
+        # modelled alert
+        ax.plot(t0, y0, 'c-', label='ensemble mean', zorder=4, lw=0.75)
+        ax_ = ax.twinx()
+        ax_.set_ylabel('RSAM [$\mu$m s$^{-1}$]')
+        ax_.set_ylim([0,5])
+        ax_.set_xlim(ax.get_xlim())
+        ax_.plot(trsam0, rsam0.values*1.e-3, 'k-', lw=0.75)
+
+        for tii,yi in zip(t0, y0):
+            if yi > threshold:
+                ax.fill_between([tii, tii+fm0.dtf], [0,0], [100,100], color='y', zorder=3)
+                
+        ax.fill_between([], [], [], color='y', label='eruption forecast')
+        ax.plot([],[],'k-', lw=0.75, label='RSAM')
+        ax.set_title('WSRZ forecast')
+    
+    if xlim is not None: 
+        ax2.set_xlim(xlim)
+        ax3.set_xlim(xlim)
+        tmax = xlim[-1] 
+        tmax0 = xlim[-1] 
+
+    tf = tmax 
+    tf0 = tmax0
+    ta = tf.replace(hour=0, minute=0, second=0)
+    xts = [ta - timedelta(days=i) for i in range(7)][::-1]
+    lxts = [xt.strftime('%d %b') for xt in xts]
+    ax2.set_xticks(xts)
+    ax2.set_xticklabels(lxts)
+    tfi  = fm.data.tf
+    tfi = to_nztimezone([tfi])[0]
+    ax2.text(0.025, 0.95, 'model last updated {:s}'.format(tfi.strftime('%H:%M, %d %b %Y')), size = 12, ha = 'left', 
+        va = 'top', transform=ax2.transAxes)
+    
+    ta = datetimeify('2020-01-01')
+    xts = [ta.replace(month=i) for i in range(1, tf.month+1)]
+    lxts = [xt.strftime('%d %b') for xt in xts]
+    ax1.set_xticks(xts)
+    ax1.set_xticklabels(lxts)
+    ax1.text(0.025, 0.95, ta.strftime('%Y'), size = 12, ha = 'left', 
+        va = 'top', transform=ax1.transAxes)
+
+    plt.savefig(save, dpi=300)
+    plt.close(f)
+
+def update_forecast_bkp():
     ''' Update model forecast.
     '''
     try:

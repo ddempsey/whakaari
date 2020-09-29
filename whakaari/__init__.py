@@ -441,12 +441,13 @@ class ForecastModel(object):
         plot_feature_correlation
             Corner plot of feature correlation.
     """
-    def __init__(self, window, overlap, look_forward, ti=None, tf=None, data_streams=['rsam','mf','hf','dsar'], root=None, savefile_type='csv'):
+    def __init__(self, window, overlap, look_forward, station='WIZ', ti=None, tf=None, data_streams=['rsam','mf','hf','dsar'], root=None, savefile_type='csv'):
         self.window = window
         self.overlap = overlap
+        self.station = station
         self.look_forward = look_forward
         self.data_streams = data_streams
-        self.data = TremorData()
+        self.data = TremorData(self.station)
         if any(['_' in ds for ds in data_streams]):
             self.data._compute_transforms()
         if any([d not in self.data.df.columns for d in self.data_streams]):
@@ -1213,7 +1214,7 @@ class ForecastModel(object):
         # calculate hires feature matrix
         if root is None:
             root = self.root+'_hires'
-        _fm = ForecastModel(self.window, 1., self.look_forward, ti, tf, self.data_streams, root=root, savefile_type=self.savefile_type)
+        _fm = ForecastModel(self.window, 1., self.look_forward, self.station, ti, tf, self.data_streams, root=root, savefile_type=self.savefile_type)
         _fm.compute_only_features = list(set([ft.split('__')[1] for ft in self._collect_features()[0]]))
         _fm._extract_features(ti, tf)
 
@@ -1749,9 +1750,7 @@ def get_data_for_day(i,t0,station):
         # if less than 1 day of data, try different client
         if len(WIZ.traces[0].data) < 600*100:
             raise FDSNNoDataException('')
-    except ObsPyMSEEDFilesizeTooSmallError:
-        return
-    except FDSNNoDataException:
+    except (ObsPyMSEEDFilesizeTooSmallError,FDSNNoDataException) as e:
         try:
             WIZ = client_nrt.get_waveforms('NZ',station, "10", "HHZ", t0+i*daysec, t0 + (i+1)*daysec)
         except FDSNNoDataException:
