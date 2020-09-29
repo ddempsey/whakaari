@@ -433,7 +433,6 @@ def plot_dashboard(ys,ys0,fm,fm0,save):
     ax4.text(0.5,0.5,'Under Construction',fontstyle='italic',size=12,ha='center',va='center')
     ax4.set_title('Time to exceed 10$^{-4}$ annual risk (experimental)')
 
-    ax1.set_xlim([datetimeify('2020-08-01'), np.max([tmax, tmax0])])
     ax1.legend(loc=1, ncol=3)
 
     ax3.set_ylim([-0.05, 1.05])
@@ -492,6 +491,7 @@ def plot_dashboard(ys,ys0,fm,fm0,save):
     ax1.set_xticklabels(lxts)
     ax1.text(0.025, 0.95, ta.strftime('%Y'), size = 12, ha = 'left', 
         va = 'top', transform=ax1.transAxes)
+    ax1.set_xlim([datetimeify('2020-08-01'), np.max([tmax, tmax0])])
 
     plt.savefig(save, dpi=300)
     plt.close(f)
