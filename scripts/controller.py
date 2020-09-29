@@ -390,7 +390,6 @@ def plot_dashboard(ys,ys0,fm,fm0,save):
     
     ax2.set_xlim([tmax-timedelta(days=7), tmax])
     ax3.set_xlim([tmax0-timedelta(days=7), tmax0])
-    ax1.set_xlim([datetimeify('2020-08-01'), np.max([tmax, tmax0])])
 
     for ax in [ax1,ax2]:
         ax.set_ylim([-0.05, 1.05])
@@ -434,6 +433,7 @@ def plot_dashboard(ys,ys0,fm,fm0,save):
     ax4.text(0.5,0.5,'Under Construction',fontstyle='italic',size=12,ha='center',va='center')
     ax4.set_title('Time to exceed 10$^{-4}$ annual risk (experimental)')
 
+    ax1.set_xlim([datetimeify('2020-08-01'), np.max([tmax, tmax0])])
     ax1.legend(loc=1, ncol=3)
 
     ax3.set_ylim([-0.05, 1.05])
@@ -444,7 +444,7 @@ def plot_dashboard(ys,ys0,fm,fm0,save):
     ax3.axhline(threshold, color='k', linestyle=':', label='alert threshold', zorder=4)
 
     # modelled alert
-    ax3.plot(t0, y0, 'c-', label='ensemble mean', zorder=4, lw=0.75)
+    ax3.plot(t0, y0, 'm-', label='ensemble mean', zorder=4, lw=0.75)
     ax_ = ax3.twinx()
     ax_.set_ylabel('RSAM [$\mu$m s$^{-1}$]')
     ax_.set_ylim([0,5])
