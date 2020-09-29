@@ -401,7 +401,7 @@ def plot_dashboard(ys,ys0,fm,fm0,save):
         ax.axhline(threshold, color='k', linestyle=':', label='alert threshold', zorder=4)
 
         # modelled alert
-        ax.plot(t, y, 'c-', label='ensemble mean', zorder=4, lw=0.75)
+        ax.plot(t, y, 'c-', label='WIZ ensemble mean', zorder=4, lw=0.75)
         ax_ = ax.twinx()
         ax_.set_ylabel('RSAM [$\mu$m s$^{-1}$]')
         ax_.set_ylim([0,5])
@@ -412,8 +412,8 @@ def plot_dashboard(ys,ys0,fm,fm0,save):
             if yi > threshold:
                 ax.fill_between([tii, tii+fm.dtf], [0,0], [100,100], color='y', zorder=3)
                 
-        ax.fill_between([], [], [], color='y', label='eruption forecast')
-        ax.plot([],[],'k-', lw=0.75, label='RSAM')
+        ax.fill_between([], [], [], color='y', label='WIZ alert')
+        ax.plot([],[],'k-', lw=0.75, label='RSAM (WIZ)')
     
     # th,time = np.genfromtxt('risk.txt', delimiter=',', skip_header=1).T
     # risk  = []
@@ -424,12 +424,17 @@ def plot_dashboard(ys,ys0,fm,fm0,save):
     # ax4.set_yscale('log')
     # ax4.set_yticks([1./60, 10/60., 1., 6., 24., 24*7])
     # ax4.set_yticklabels(['1 min','10 mins','1 hr','6 hrs','1 day','1 week'])
+    for tii,yi in zip(t0, y0):
+        if yi > threshold:
+            ax1.fill_between([tii, tii+fm0.dtf], [0,0], [100,100], color=[0.5,0.5,0.5], zorder=3)
+    ax1.plot(t, y0, 'm-', label='WSRZ ensemble mean', zorder=4, lw=0.75)
+    ax1.fill_between([], [], [], color=[0.5,0.5,0.5], label='WSRZ alert')
     ax4.set_xlim([0,1]); ax4.set_xticks([])
     ax4.set_ylim([0,1]); ax4.set_yticks([])
     ax4.text(0.5,0.5,'Under Construction',fontstyle='italic',size=12,ha='center',va='center')
     ax4.set_title('Time to exceed 10$^{-4}$ annual risk (experimental)')
 
-    ax1.legend(loc=1, ncol=2)
+    ax1.legend(loc=1, ncol=3)
 
     ax3.set_ylim([-0.05, 1.05])
     ax3.set_yticks([0,0.25,0.50,0.75,1.00])
