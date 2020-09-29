@@ -1,14 +1,16 @@
 import os, sys, traceback, smtplib, ssl, yagmail, shutil, argparse
 sys.path.insert(0, os.path.abspath('..'))
-from whakaari import TremorData, ForecastModel, datetimeify
+from whakaari import TremorData, ForecastModel, to_nztimezone, datetimeify
 from datetime import timedelta, datetime
 from subprocess import Popen, PIPE
 from pathlib import Path
 from dateutil import tz
+from matplotlib import pyplot as plt
 from time import sleep, time
 import pandas as pd
 import numpy as np
 import twitter
+import cProfile, pstats
 
 # tsfresh and sklearn dump a lot of warnings - these are switched off below, but should be
 # switched back on when debugging
@@ -273,11 +275,11 @@ def rebuild_hires_features():
     root = 'online_forecaster_'+station
     td = TremorData(station=station) 
     data_streams = ['rsam','mf','hf','dsar']
-    fm = ForecastModel(ti='2011-01-01', tf=td.tf, window=2, overlap=0.75, station=station,  
+    fm = ForecastModel(ti='2013-05-01', tf=td.tf, window=2, overlap=0.75, station=station,  
         look_forward=2, data_streams=data_streams, root=root, savefile_type='pkl')
         
     drop_features = ['linear_trend_timewise','agg_linear_trend']
-    fm.train(ti='2012-01-01', tf='2020-01-01', drop_features=drop_features, Ncl=500,
+    fm.train(ti='2013-05-01', tf='2020-01-01', drop_features=drop_features, Ncl=500,
         retrain=False, n_jobs=1)    
         
     fl = '../features/{:s}_hires_features.csv'.format(root)
@@ -333,8 +335,8 @@ def update_forecast():
         
         # forecast from beginning of training period at high resolution
         tf = datetime.utcnow()
-        ys = fm.hires_forecast(ti=datetimeify('2020-01-01'), tf=fm.data.tf, recalculate=False, n_jobs=1) 
-        ys0 = fm0.hires_forecast(ti=datetimeify('2020-01-01'), tf=fm0.data.tf, recalculate=False, n_jobs=1) 
+        ys = fm.hires_forecast(ti=datetimeify('2020-08-01'), tf=fm.data.tf, recalculate=True, n_jobs=1)
+        ys0 = fm0.hires_forecast(ti=datetimeify('2020-08-01'), tf=fm0.data.tf, recalculate=True, n_jobs=1) 
 
         plot_dashboard(ys,ys0,fm,fm0,'current_forecast.png')
 
@@ -440,12 +442,6 @@ def plot_dashboard(ys,ys0,fm,fm0,save):
         ax.plot([],[],'k-', lw=0.75, label='RSAM')
         ax.set_title('WSRZ forecast')
     
-    if xlim is not None: 
-        ax2.set_xlim(xlim)
-        ax3.set_xlim(xlim)
-        tmax = xlim[-1] 
-        tmax0 = xlim[-1] 
-
     tf = tmax 
     tf0 = tmax0
     ta = tf.replace(hour=0, minute=0, second=0)

@@ -1060,7 +1060,7 @@ class ForecastModel(object):
         del fM
         gc.collect()
         self._collect_features()
-    def forecast(self, ti=None, tf=None, recalculate=False, use_model=None, n_jobs=6):
+    def forecast(self, ti=None, tf=None, recalculate=False, use_model=None, n_jobs=None):
         """ Use classifier models to forecast eruption likelihood.
 
             Parameters:
@@ -1085,7 +1085,8 @@ class ForecastModel(object):
         self._use_model = use_model
         makedir(self.preddir)
 
-        # 
+        #
+        if n_jobs is not None: self.n_jobs = n_jobs 
         self.ti_forecast = self.ti_model if ti is None else datetimeify(ti)
         self.tf_forecast = self.tf_model if tf is None else datetimeify(tf)
         if self.tf_forecast > self.data.tf:
@@ -1177,7 +1178,7 @@ class ForecastModel(object):
 
         return forecast
     def hires_forecast(self, ti, tf, recalculate=True, save=None, root=None, nztimezone=False, 
-        n_jobs=6, threshold=0.8, alt_rsam=None, xlim=None):
+        n_jobs=None, threshold=0.8, alt_rsam=None, xlim=None):
         """ Construct forecast at resolution of data.
 
             Parameters:
@@ -1211,6 +1212,8 @@ class ForecastModel(object):
             save = '{:s}/hires_forecast.png'.format(self.plotdir)
             makedir(self.plotdir)
         
+        if n_jobs is not None: self.n_jobs = n_jobs
+ 
         # calculate hires feature matrix
         if root is None:
             root = self.root+'_hires'
@@ -1219,7 +1222,7 @@ class ForecastModel(object):
         _fm._extract_features(ti, tf)
 
         # predict on hires features
-        ys = _fm.forecast(ti, tf, recalculate, use_model=self.modeldir)
+        ys = _fm.forecast(ti, tf, recalculate, use_model=self.modeldir, n_jobs=n_jobs)
         
         if save is not None:
             self._plot_hires_forecast(ys, save, threshold, nztimezone=nztimezone, alt_rsam=alt_rsam, xlim=xlim)
