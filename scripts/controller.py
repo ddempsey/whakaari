@@ -361,10 +361,10 @@ def plot_dashboard(ys,ys0,fm,fm0,save):
     
     # set up figures and axes
     f = plt.figure(figsize=(16,8))
-    ax1 = plt.axes([0.08, 0.55, 0.4, 0.4])
-    ax2 = plt.axes([0.08, 0.08, 0.4, 0.4])
-    ax3 = plt.axes([0.56, 0.55, 0.4, 0.4])
-    ax4 = plt.axes([0.56, 0.08, 0.4, 0.4])
+    ax1 = plt.axes([0.05, 0.55, 0.4, 0.36])
+    ax2 = plt.axes([0.05, 0.08, 0.4, 0.36])
+    ax3 = plt.axes([0.56, 0.55, 0.4, 0.36])
+    ax4 = plt.axes([0.56, 0.08, 0.4, 0.36])
     
     t = pd.to_datetime(ys.index.values)
     t0 = pd.to_datetime(ys0.index.values)
@@ -391,7 +391,6 @@ def plot_dashboard(ys,ys0,fm,fm0,save):
     ax2.set_xlim([tmax-timedelta(days=7), tmax])
     ax3.set_xlim([tmax0-timedelta(days=7), tmax0])
     ax1.set_xlim([t[0], np.max([tmax, tmax0])])
-    ax1.set_title('Whakaari Eruption Forecast')
 
     for ax in [ax1,ax2]:
         ax.set_ylim([-0.05, 1.05])
@@ -416,34 +415,47 @@ def plot_dashboard(ys,ys0,fm,fm0,save):
         ax.fill_between([], [], [], color='y', label='eruption forecast')
         ax.plot([],[],'k-', lw=0.75, label='RSAM')
     
+    th,time = np.genfromtxt('risk.txt', delimiter=',', skip_header=1).T
+    risk  = []
+    for yi in y:
+        i = np.argmin(abs(th-yi))+1
+        risk.append(np.min(time[:i]))
+    ax4.plot(t, risk, 'k-', lw=0.75)
+    ax4.set_yticks([1./60, 10/60., 1., 6., 24., 24*7])
+    ax4.set_yticklabels(['1 min','10 mins','1 hr','6 hrs','1 day','1 week'])
+    ax4.set_yscale('log')
+    ax4.set_title('Time to exceed 10$^{-4}$ annual risk (experimental)')
+
     ax1.legend(loc=1, ncol=2)
 
-    for ax in [ax3]:
-        ax.set_ylim([-0.05, 1.05])
-        ax.set_yticks([0,0.25,0.50,0.75,1.00])
-        ax.set_ylabel('ensemble mean')
-    
-        # consensus threshold
-        ax.axhline(threshold, color='k', linestyle=':', label='alert threshold', zorder=4)
+    ax3.set_ylim([-0.05, 1.05])
+    ax3.set_yticks([0,0.25,0.50,0.75,1.00])
+    ax3.set_ylabel('ensemble mean')
 
-        # modelled alert
-        ax.plot(t0, y0, 'c-', label='ensemble mean', zorder=4, lw=0.75)
-        ax_ = ax.twinx()
-        ax_.set_ylabel('RSAM [$\mu$m s$^{-1}$]')
-        ax_.set_ylim([0,5])
-        ax_.set_xlim(ax.get_xlim())
-        ax_.plot(trsam0, rsam0.values*1.e-3, 'k-', lw=0.75)
+    # consensus threshold
+    ax3.axhline(threshold, color='k', linestyle=':', label='alert threshold', zorder=4)
 
-        for tii,yi in zip(t0, y0):
-            if yi > threshold:
-                ax.fill_between([tii, tii+fm0.dtf], [0,0], [100,100], color='y', zorder=3)
-                
-        ax.fill_between([], [], [], color='y', label='eruption forecast')
-        ax.plot([],[],'k-', lw=0.75, label='RSAM')
-        ax.set_title('WSRZ forecast')
+    # modelled alert
+    ax3.plot(t0, y0, 'c-', label='ensemble mean', zorder=4, lw=0.75)
+    ax_ = ax3.twinx()
+    ax_.set_ylabel('RSAM [$\mu$m s$^{-1}$]')
+    ax_.set_ylim([0,5])
+    ax_.set_xlim(ax3.get_xlim())
+    ax_.plot(trsam0, rsam0.values*1.e-3, 'k-', lw=0.75)
+
+    for tii,yi in zip(t0, y0):
+        if yi > threshold:
+            ax3.fill_between([tii, tii+fm0.dtf], [0,0], [100,100], color='y', zorder=3)
+            
+    ax3.fill_between([], [], [], color='y', label='eruption forecast')
+    ax3.plot([],[],'k-', lw=0.75, label='RSAM')
     
+    ax1.set_title('Whakaari Eruption Forecast (Historic)')
+    ax2.set_title('WIZ forecast')
+    ax3.set_title('WSRZ forecast (experimental)')
+    ax4.set_title('Risk calculation (experimental)')
+
     tf = tmax 
-    tf0 = tmax0
     ta = tf.replace(hour=0, minute=0, second=0)
     xts = [ta - timedelta(days=i) for i in range(7)][::-1]
     lxts = [xt.strftime('%d %b') for xt in xts]
@@ -453,6 +465,17 @@ def plot_dashboard(ys,ys0,fm,fm0,save):
     tfi = to_nztimezone([tfi])[0]
     ax2.text(0.025, 0.95, 'model last updated {:s}'.format(tfi.strftime('%H:%M, %d %b %Y')), size = 12, ha = 'left', 
         va = 'top', transform=ax2.transAxes)
+
+    tf0 = tmax0
+    ta0 = tf0.replace(hour=0, minute=0, second=0)
+    xts = [ta0 - timedelta(days=i) for i in range(7)][::-1]
+    lxts = [xt.strftime('%d %b') for xt in xts]
+    ax2.set_xticks(xts)
+    ax2.set_xticklabels(lxts)
+    tfi  = fm0.data.tf
+    tfi = to_nztimezone([tfi])[0]
+    ax3.text(0.025, 0.95, 'model last updated {:s}'.format(tfi.strftime('%H:%M, %d %b %Y')), size = 12, ha = 'left', 
+        va = 'top', transform=ax3.transAxes)
     
     ta = datetimeify('2020-01-01')
     xts = [ta.replace(month=i) for i in range(1, tf.month+1)]
