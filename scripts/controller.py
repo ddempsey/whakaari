@@ -485,7 +485,7 @@ def plot_dashboard(ys,ys0,fm,fm0,save):
     ax3.text(0.025, 0.95, 'model last updated {:s}'.format(tfi.strftime('%H:%M, %d %b %Y')), size = 12, ha = 'left', 
         va = 'top', transform=ax3.transAxes)
     
-    ta = datetimeify('2020-01-01')
+    ta = datetimeify('2020-08-01')
     xts = [ta.replace(month=i) for i in range(1, tf.month+1)]
     lxts = [xt.strftime('%d %b') for xt in xts]
     ax1.set_xticks(xts)
