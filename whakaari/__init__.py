@@ -457,9 +457,11 @@ class ForecastModel(object):
         self.ti_model = datetimeify(ti)
         self.tf_model = datetimeify(tf)
         if self.tf_model > self.data.tf:
-            raise ValueError("Model end date '{:s}' beyond data range '{:s}'".format(self.tf_model, self.data.tf))
+            t0,t1 = [self.tf_model.strftime('%Y-%m-%d %H:%M'), self.data.tf.strftime('%Y-%m-%d %H:%M')]
+            raise ValueError("Model end date '{:s}' beyond data range '{:s}'".format(t0,t1))
         if self.ti_model < self.data.ti:
-            raise ValueError("Model start date '{:s}' predates data range '{:s}'".format(self.ti_model, self.data.ti))
+            t0,t1 = [self.ti_model.strftime('%Y-%m-%d %H:%M'), self.data.ti.strftime('%Y-%m-%d %H:%M')]
+            raise ValueError("Model start date '{:s}' predates data range '{:s}'".format(t0,t1))
         self.dtw = timedelta(days=self.window)
         self.dtf = timedelta(days=self.look_forward)
         self.dt = timedelta(seconds=600)

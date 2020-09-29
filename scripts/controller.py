@@ -319,7 +319,7 @@ def update_forecast():
         data_streams = ['rsam','mf','hf','dsar']
         fm = ForecastModel(ti='2011-01-01', tf=td.tf, window=2, overlap=0.75,  
             look_forward=2, data_streams=data_streams, root='online_forecaster_WIZ',savefile_type='pkl')
-        fm0 = ForecastModel(ti='2012-01-01', tf=td0.tf, window=2, overlap=0.75,  
+        fm0 = ForecastModel(ti='2013-05-01', tf=td0.tf, window=2, overlap=0.75,  
             look_forward=2, data_streams=data_streams, root='online_forecaster_WSRZ',savefile_type='pkl')
         
         # The online forecaster is trained using all eruptions in the dataset. It only
@@ -330,7 +330,7 @@ def update_forecast():
         drop_features = ['linear_trend_timewise','agg_linear_trend']
         fm.train(ti='2011-01-01', tf='2020-01-01', drop_features=drop_features, Ncl=500,
             retrain=False, n_jobs=1)      
-        fm0.train(ti='2012-01-01', tf='2020-01-01', drop_features=drop_features, Ncl=500,
+        fm0.train(ti='2013-05-01', tf='2020-01-01', drop_features=drop_features, Ncl=500,
             retrain=False, n_jobs=1)      
         
         # forecast from beginning of training period at high resolution
@@ -390,7 +390,7 @@ def plot_dashboard(ys,ys0,fm,fm0,save):
     
     ax2.set_xlim([tmax-timedelta(days=7), tmax])
     ax3.set_xlim([tmax0-timedelta(days=7), tmax0])
-    ax1.set_xlim([t[0], np.max([tmax, tmax0])])
+    ax1.set_xlim([datetimeify('2020-08-01'), np.max([tmax, tmax0])])
 
     for ax in [ax1,ax2]:
         ax.set_ylim([-0.05, 1.05])
