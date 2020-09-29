@@ -317,9 +317,9 @@ def update_forecast():
     try:
         # model from 2011 to present day (td.tf)
         data_streams = ['rsam','mf','hf','dsar']
-        fm = ForecastModel(ti='2011-01-01', tf=td.tf, window=2, overlap=0.75,  
+        fm = ForecastModel(ti='2011-01-01', tf=td.tf, window=2, overlap=0.75, station='WIZ', 
             look_forward=2, data_streams=data_streams, root='online_forecaster_WIZ',savefile_type='pkl')
-        fm0 = ForecastModel(ti='2013-05-01', tf=td0.tf, window=2, overlap=0.75,  
+        fm0 = ForecastModel(ti='2013-05-01', tf=td0.tf, window=2, overlap=0.75, station='WSRZ',
             look_forward=2, data_streams=data_streams, root='online_forecaster_WSRZ',savefile_type='pkl')
         
         # The online forecaster is trained using all eruptions in the dataset. It only
