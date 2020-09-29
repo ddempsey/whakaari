@@ -473,8 +473,8 @@ def plot_dashboard(ys,ys0,fm,fm0,save):
     ta0 = tf0.replace(hour=0, minute=0, second=0)
     xts = [ta0 - timedelta(days=i) for i in range(7)][::-1]
     lxts = [xt.strftime('%d %b') for xt in xts]
-    ax2.set_xticks(xts)
-    ax2.set_xticklabels(lxts)
+    ax3.set_xticks(xts)
+    ax3.set_xticklabels(lxts)
     tfi  = fm0.data.tf
     tfi = to_nztimezone([tfi])[0]
     ax3.text(0.025, 0.95, 'model last updated {:s}'.format(tfi.strftime('%H:%M, %d %b %Y')), size = 12, ha = 'left', 
