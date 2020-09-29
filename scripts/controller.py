@@ -415,15 +415,18 @@ def plot_dashboard(ys,ys0,fm,fm0,save):
         ax.fill_between([], [], [], color='y', label='eruption forecast')
         ax.plot([],[],'k-', lw=0.75, label='RSAM')
     
-    th,time = np.genfromtxt('risk.txt', delimiter=',', skip_header=1).T
-    risk  = []
-    for yi in y:
-        i = np.argmin(abs(th-yi))+1
-        risk.append(np.min(time[:i]))
-    ax4.plot(t, risk, 'k-', lw=0.75)
-    ax4.set_yticks([1./60, 10/60., 1., 6., 24., 24*7])
-    ax4.set_yticklabels(['1 min','10 mins','1 hr','6 hrs','1 day','1 week'])
-    ax4.set_yscale('log')
+    # th,time = np.genfromtxt('risk.txt', delimiter=',', skip_header=1).T
+    # risk  = []
+    # for yi in y:
+    #     i = np.argmin(abs(th-yi))+1
+    #     risk.append(np.min(time[:i]))
+    # ax4.plot(t, risk, 'k-', lw=0.75)
+    # ax4.set_yscale('log')
+    # ax4.set_yticks([1./60, 10/60., 1., 6., 24., 24*7])
+    # ax4.set_yticklabels(['1 min','10 mins','1 hr','6 hrs','1 day','1 week'])
+    ax4.set_xlim([0,1]); ax4.set_xticks([])
+    ax4.set_ylim([0,1]); ax4.set_yticks([])
+    ax4.text(0.5,0.5,'Under Construction',fontstyle='italic',size=12,ha='center',va='center')
     ax4.set_title('Time to exceed 10$^{-4}$ annual risk (experimental)')
 
     ax1.legend(loc=1, ncol=2)
