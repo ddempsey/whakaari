@@ -87,9 +87,10 @@ class TremorData(object):
         plot
             Plot tremor data.
     """
-    def __init__(self, station='WIZ'):
-        self.station = station
-        self.file = os.sep.join(getfile(currentframe()).split(os.sep)[:-2]+['data','{:s}_tremor_data.csv'.format(station)])
+    def __init__(self, volcano, frequency='1D'):
+        self.volcano = volcano
+        self.frequency = frequency
+        self.dir = os.sep.join(getfile(currentframe()).split(os.sep)[:-2]+['data',self.volcano])
         self._assess()
     def __repr__(self):
         if self.exists:
@@ -101,20 +102,50 @@ class TremorData(object):
     def _assess(self):
         """ Load existing file and check date range of data.
         """
+        # error checking
+        if not os.path.isdir(self.dir):
+            raise ValueError('no directory for volcano \'{:s}\''.format(self.dir))
+        fl = '{:s}/eruptive_periods.txt'.format(self.dir)
+        if not os.path.isfile(fl):
+            raise ValueError('no eruption data file \'{:s}\''.format(fl))
+        fl = '{:s}/*_data.csv'.format(self.dir)
+        data_fls = glob(fl)
+        if len(data_fls) == 0:
+            raise ValueError('no data files \'{:s}\''.format(fl))
         # get eruptions
-        with open(os.sep.join(getfile(currentframe()).split(os.sep)[:-2]+['data','eruptive_periods.txt']),'r') as fp:
+        with open('{:s}/eruptive_periods.txt'.format(self.dir),'r') as fp:
             self.tes = [datetimeify(ln.rstrip()) for ln in fp.readlines()]
         # check if data file exists
-        self.exists = os.path.isfile(self.file)
-        if not self.exists:
-            t0 = datetime(2011,1,1)
-            t1 = datetime(2011,1,2)
-            self.update(t0,t1)
-        # check date of latest data in file
-        self.df = load_dataframe(self.file, index_col=0, parse_dates=[0,], infer_datetime_format=True)
-        # self.df = pd.read_csv(self.file, index_col=0, parse_dates=[0,], infer_datetime_format=True)
-        self.ti = self.df.index[0]
-        self.tf = self.df.index[-1]
+        self._load_data()
+    def _load_data(self):
+        
+        fl = '{:s}/*_data.csv'.format(self.dir)
+        data_fls = glob(fl)
+
+        # read data files
+        ds = []
+        dtypes = []
+        for fl in data_fls:
+            dtypes.append(fl.split(os.sep)[-1].split('_data.csv')[0])
+            _, d = np.genfromtxt(fl, skip_header=1, delimiter=',').T
+            with open(fl,'r') as fp: t = [ln.split(',')[0] for ln in fp.readlines()[1:]]
+            fmt = detect_timeformat(t[0])
+            t = [datetimeify(ti, fmt) for ti in t]
+            ds.append(pd.Series(d, t))
+        
+        # find latest tmin, earliest tmax
+        self.ti = np.max([d.index[0] for d in ds])
+        self.tf = np.min([d.index[-1] for d in ds])
+
+        # truncate records to time range and resample at regular interval
+        ds2 = []
+        for d in ds:
+            d = d.loc[~d.index.duplicated(keep='last')]
+            d = d[(d.index>=self.ti)&(d.index<=self.tf)]
+            d = d.resample(self.frequency).interpolate('linear')
+            ds2.append(d)
+        
+        self.df = pd.DataFrame(dict(zip(dtypes,ds2)), index = ds2[-1].index)
     def _compute_transforms(self):
         """ Compute data transforms.
 
@@ -164,68 +195,6 @@ class TremorData(object):
             if 0 < (te-from_time).total_seconds()/(3600*24) < days:
                 return 1.
         return 0.
-    def update(self, ti=None, tf=None):
-        """ Obtain latest GeoNet data.
-
-            Parameters:
-            -----------
-            ti : str, datetime.datetime
-                First date to retrieve data (default is first date data available).
-            tf : str, datetime.datetime
-                Last date to retrieve data (default is current date).
-        """
-        if failedobspyimport:
-            raise ImportError('ObsPy import failed, cannot update data.')
-
-        makedir('_tmp')
-
-        # default data range if not given 
-        ti = ti or datetime(self.tf.year,self.tf.month,self.tf.day,0,0,0)
-        tf = tf or datetime.today() + _DAY
-        
-        ti = datetimeify(ti)
-        tf = datetimeify(tf)
-
-        ndays = (tf-ti).days
-
-        # parallel data collection - creates temporary files in ./_tmp
-        pars = [[i,ti,self.station] for i in range(ndays)]
-        p = Pool(6)
-        p.starmap(get_data_for_day, pars)
-        p.close()
-        p.join()
-
-        # special case of no file to update - create new file
-        if not self.exists:
-            shutil.copyfile('_tmp/_tmp_fl_00000.dat',self.file)
-            self.exists = True
-            shutil.rmtree('_tmp')
-            return
-
-        # read temporary files in as dataframes for concatenation with existing data
-        dfs = [self.df[datas]]
-        for i in range(ndays):
-            fl = '_tmp/_tmp_fl_{:05d}.csv'.format(i)
-            if not os.path.isfile(fl): 
-                continue
-            # dfs.append(pd.read_csv(fl, index_col=0, parse_dates=[0,], infer_datetime_format=True))
-            dfs.append(load_dataframe(fl, index_col=0, parse_dates=[0,], infer_datetime_format=True))
-        shutil.rmtree('_tmp')
-        self.df = pd.concat(dfs)
-
-        # impute missing data using linear interpolation and save file
-        self.df = self.df.loc[~self.df.index.duplicated(keep='last')]
-        self.df = self.df.resample('10T').interpolate('linear')
-
-        # remove artefact in computing dsar
-        for i in range(1,int(np.floor(self.df.shape[0]/(24*6)))): 
-            ind = i*24*6
-            self.df['dsar'][ind] = 0.5*(self.df['dsar'][ind-1]+self.df['dsar'][ind+1])
-
-        # self.df.to_csv(self.file, index=True)
-        save_dataframe(self.df, self.file, index=True)
-        self.ti = self.df.index[0]
-        self.tf = self.df.index[-1]
     def get_data(self, ti=None, tf=None):
         """ Return tremor data in requested date range.
 
@@ -254,7 +223,7 @@ class TremorData(object):
         # subset data
         inds = (self.df.index>=ti)&(self.df.index<tf)
         return self.df.loc[inds]
-    def plot(self, data_streams='rsam', save='tremor_data.png', ylim=[0, 5000]):
+    def plot(self, data_streams=None, save='tremor_data.png', tlim = [None, None], ylim=[0, 5000]):
         """ Plot tremor data.
 
             Parameters:
@@ -286,42 +255,30 @@ class TremorData(object):
         """
         if type(data_streams) is str:
             data_streams = [data_streams,]
+        elif data_streams is None:
+            data_streams = self.df.columns
         if any(['_' in ds for ds in data_streams]):
             self._compute_transforms()
+        ti,tf = tlim
+        if ti is None: ti = self.ti
+        if tf is None: tf = self.tf
 
         # set up figures and axes
-        f = plt.figure(figsize=(24,15))
-        N = 10
-        dy1,dy2 = 0.05, 0.05
-        dy3 = (1.-dy1-(N//2)*dy2)/(N//2)
-        dx1,dx2 = 0.43,0.03
-        axs = [plt.axes([0.05+(1-i//(N/2))*(dx1+dx2), dy1+(i%(N/2))*(dy2+dy3), dx1, dy3]) for i in range(N)][::-1]
-        
-        for i,ax in enumerate(axs):
-            ti,tf = [datetime.strptime('{:d}-01-01 00:00:00'.format(2011+i), '%Y-%m-%d %H:%M:%S'),
-                datetime.strptime('{:d}-01-01 00:00:00'.format(2012+i), '%Y-%m-%d %H:%M:%S')]
-            ax.set_xlim([ti,tf])
-            ax.text(0.01,0.95,'{:4d}'.format(2011+i), transform=ax.transAxes, va='top', ha='left', size=16)
-            ax.set_ylim(ylim)
-            
-        # plot data for each year
-        data = self.get_data()
+        f = plt.figure(figsize=(8,4))
+        ax = plt.axes([0.1, 0.1, 0.8, 0.8])
+
+       # plot data for each year
+        data = self.get_data(ti, tf)
         xi = datetime(year=1,month=1,day=1,hour=0,minute=0,second=0)
         cols = ['c','m','y','g',[0.5,0.5,0.5],[0.75,0.75,0.75]]
-        for i,ax in enumerate(axs):
-            if i//(N/2) == 0:
-                ax.set_ylabel('data [nm/s]')
-            else:
-                ax.set_yticklabels([])
-            x0,x1 =[xi+timedelta(days=xl)-_DAY for xl in ax.get_xlim()]
-            inds = (data.index>=x0)&(data.index<=x1)
-            for data_stream, col in zip(data_streams,cols):
-                ax.plot(data.index[inds], data[data_stream].loc[inds], '-', color=col, label=data_stream)
-            
-            for te in self.tes:
-                ax.axvline(te, color='k', linestyle='--', linewidth=2)
-            ax.axvline(te, color='k', linestyle='--', linewidth=2, label='eruption')
-        axs[-1].legend()
+        for data_stream, col in zip(data_streams,cols):
+            ax.plot(data.index, data[data_stream], '-', color=col, label=data_stream)
+        
+        for te in self.tes:
+            ax.axvline(te, color='r', linestyle='--', linewidth=2)
+        ax.axvline(te, color='r', linestyle='--', linewidth=2, label='eruption')
+        ax.set_xlim([ti,tf])
+        ax.legend()
         
         plt.savefig(save, dpi=400)
 
@@ -444,13 +401,13 @@ class ForecastModel(object):
         plot_feature_correlation
             Corner plot of feature correlation.
     """
-    def __init__(self, window, overlap, look_forward, station='WIZ', ti=None, tf=None, data_streams=['rsam','mf','hf','dsar'], root=None, savefile_type='csv'):
+    def __init__(self, volcano, window, overlap, look_forward, ti=None, tf=None, data_streams=['rsam','mf','hf','dsar'], root=None, savefile_type='csv'):
+        self.volcano = volcano
         self.window = window
         self.overlap = overlap
-        self.station = station
         self.look_forward = look_forward
         self.data_streams = data_streams
-        self.data = TremorData(self.station)
+        self.data = TremorData(self.volcano)
         if any(['_' in ds for ds in data_streams]):
             self.data._compute_transforms()
         if any([d not in self.data.df.columns for d in self.data_streams]):
@@ -467,13 +424,14 @@ class ForecastModel(object):
             raise ValueError("Model start date '{:s}' predates data range '{:s}'".format(t0,t1))
         self.dtw = timedelta(days=self.window)
         self.dtf = timedelta(days=self.look_forward)
-        self.dt = timedelta(seconds=600)
+        self.dt = (self.data.df.index[1] - self.data.df.index[0])
+        dt = self.dt.total_seconds()/(3600*24)
         self.dto = (1.-self.overlap)*self.dtw
-        self.iw = int(self.window*6*24)         
+        self.iw = int(self.window/dt)         
         self.io = int(self.overlap*self.iw)      
         if self.io == self.iw: self.io -= 1
 
-        self.window = self.iw*1./(6*24)
+        self.window = self.iw*dt
         self.dtw = timedelta(days=self.window)
         if self.ti_model - self.dtw < self.data.ti:
             self.ti_model = self.data.ti+self.dtw
@@ -490,7 +448,7 @@ class ForecastModel(object):
         # naming convention and file system attributes
         self.savefile_type = savefile_type
         if root is None:
-            self.root = 'fm_{:3.2f}wndw_{:3.2f}ovlp_{:3.2f}lkfd'.format(self.window, self.overlap, self.look_forward)
+            self.root = '{:s}_{:3.2f}wndw_{:3.2f}ovlp_{:3.2f}lkfd'.format(self.volcano, self.window, self.overlap, self.look_forward)
             self.root += '_'+((('{:s}-')*len(self.data_streams))[:-1]).format(*sorted(self.data_streams))
         else:
             self.root = root
@@ -1117,6 +1075,9 @@ class ForecastModel(object):
         ys = []
         if recalculate:
             run_predictions = [(rp, rp.replace(model_path, self.preddir+os.sep).replace('.pkl','.{:s}'.format(self.savefile_type))) for rp in fls]
+            for rp in run_predictions:
+                if os.path.isfile(rp[-1]):
+                    os.remove(rp[-1])
             ti = self.ti_forecast
         else:
             tis = []
@@ -1159,7 +1120,7 @@ class ForecastModel(object):
             f = partial(predict_one_model, fM, model_path, pref)
 
             # train models with glorious progress bar
-            f(run_predictions[0])
+            #f(run_predictions[0])
             for i, y in enumerate(mapper(f, run_predictions)):
                 cf = (i+1)/len(run_predictions)
                 print(f'forecasting: [{"#"*round(50*cf)+"-"*round(50*(1-cf))}] {100.*cf:.2f}%\r', end='') 
@@ -1222,7 +1183,7 @@ class ForecastModel(object):
         # calculate hires feature matrix
         if root is None:
             root = self.root+'_hires'
-        _fm = ForecastModel(self.window, 1., self.look_forward, self.station, ti, tf, self.data_streams, root=root, savefile_type=self.savefile_type)
+        _fm = ForecastModel(self.volcano, self.window, 1., self.look_forward, ti, tf, self.data_streams, root=root, savefile_type=self.savefile_type)
         _fm.compute_only_features = list(set([ft.split('__')[1] for ft in self._collect_features()[0]]))
         _fm._extract_features(ti, tf)
 
@@ -1296,8 +1257,14 @@ class ForecastModel(object):
 
             # eruptions
             for te in self.data.tes:
-                ax.axvline(te, color='k', linestyle='-', zorder=5)
-            ax.axvline(te, color='k', linestyle='-', label='eruption')
+                ax.axvline(te, color='r', linestyle='--', zorder=5)
+            ax.axvline(te, color='r', linestyle='--', label='eruption')
+
+            ax_ = ax.twinx()
+            for ds,c in zip(self.data_streams, ['k','b','g']):
+                ax_.plot(self.data.df.index, self.data.df[ds], c+'-')
+                ax.plot([],[],c+'-',label=ds)
+                ax_.set_xlim(ax.get_xlim())
 
         for tii,yi in zip(t, ys):
             if yi > threshold:
@@ -1724,87 +1691,6 @@ def get_classifier(classifier):
     
     return model, grid
 
-def get_data_for_day(i,t0,station):
-    """ Download WIZ data for given 24 hour period, writing data to temporary file.
-
-        Parameters:
-        -----------
-        i : integer
-            Number of days that 24 hour download period is offset from initial date.
-        t0 : datetime.datetime
-            Initial date of data download period.
-        
-    """
-    t0 = UTCDateTime(t0)
-
-    # open clients
-    client = FDSNClient("GEONET")
-    client_nrt = FDSNClient('https://service-nrt.geonet.org.nz')
-    
-    daysec = 24*3600
-    data_streams = [[2, 5], [4.5, 8], [8,16]]
-    names = ['rsam','mf','hf']
-
-    # download data
-    datas = []
-    try:
-        site = client.get_stations(starttime=t0+i*daysec, endtime=t0 + (i+1)*daysec, station=station, level="response", channel="HHZ")
-    except FDSNNoDataException:
-        pass
-
-    try:
-        WIZ = client.get_waveforms('NZ',station, "10", "HHZ", t0+i*daysec, t0 + (i+1)*daysec)
-        
-        # if less than 1 day of data, try different client
-        if len(WIZ.traces[0].data) < 600*100:
-            raise FDSNNoDataException('')
-    except (ObsPyMSEEDFilesizeTooSmallError,FDSNNoDataException) as e:
-        try:
-            WIZ = client_nrt.get_waveforms('NZ',station, "10", "HHZ", t0+i*daysec, t0 + (i+1)*daysec)
-        except FDSNNoDataException:
-            return
-
-    # process frequency bands
-    WIZ.remove_sensitivity(inventory=site)
-    data = WIZ.traces[0].data
-    ti = WIZ.traces[0].meta['starttime']
-        # round start time to nearest 10 min increment
-    tiday = UTCDateTime("{:d}-{:02d}-{:02d} 00:00:00".format(ti.year, ti.month, ti.day))
-    ti = tiday+int(np.round((ti-tiday)/600))*600
-    N = 600*100                             # 10 minute windows in seconds
-    Nm = int(N*np.floor(len(data)/N))
-    for data_stream, name in zip(data_streams, names):
-        filtered_data = bandpass(data, data_stream[0], data_stream[1], 100)
-        filtered_data = abs(filtered_data[:Nm])
-        datas.append(filtered_data.reshape(-1,N).mean(axis=-1)*1.e9)
-
-    # compute dsar
-    data = cumtrapz(data, dx=1./100, initial=0)
-    data -= np.mean(data)
-    j = names.index('mf')
-    mfd = bandpass(data, data_streams[j][0], data_streams[j][1], 100)
-    mfd = abs(mfd[:Nm])
-    mfd = mfd.reshape(-1,N).mean(axis=-1)
-    j = names.index('hf')
-    hfd = bandpass(data, data_streams[j][0], data_streams[j][1], 100)
-    hfd = abs(hfd[:Nm])
-    hfd = hfd.reshape(-1,N).mean(axis=-1)
-    dsar = mfd/hfd
-    datas.append(dsar)
-    names.append('dsar')
-
-    # write out temporary file
-    datas = np.array(datas)
-    time = [(ti+j*600).datetime for j in range(datas.shape[1])]
-    df = pd.DataFrame(zip(*datas), columns=names, index=pd.Series(time))
-    save_dataframe(df, '_tmp/_tmp_fl_{:05d}.csv'.format(i), index=True, index_label='time')
-
-def update_geonet_data():
-    """ Download latest GeoNet data for WIZ.
-    """
-    rs = TremorData()
-    rs.update()
-
 def train_one_model(fM, ys, Nfts, modeldir, classifier, retrain, random_seed, random_state):
     # undersample data
     rus = RandomUnderSampler(0.75, random_state=random_state+random_seed)
@@ -1867,7 +1753,7 @@ def predict_one_model(fM, model_path, pref, flp):
     save_dataframe(ypdf, fl, index=True, index_label='time')
     return ypdf
 
-def datetimeify(t):
+def datetimeify(t, fmt=None):
     """ Return datetime object corresponding to input string.
 
         Parameters:
@@ -1886,10 +1772,22 @@ def datetimeify(t):
     """
     if type(t) in [datetime, Timestamp]:
         return t
-    fmts = ['%Y-%m-%d %H:%M:%S', '%Y-%m-%d', '%Y %m %d %H %M %S',]
+    if fmt is None:
+        fmts = FMTS
+    else:
+        fmts = [fmt,]
     for fmt in fmts:
         try:
             return datetime.strptime(t, fmt)
+        except ValueError:
+            pass
+    raise ValueError("time data '{:s}' not a recognized format".format(t))
+
+def detect_timeformat(t):
+    for fmt in FMTS:
+        try:
+            _ = datetime.strptime(t, fmt)
+            return fmt
         except ValueError:
             pass
     raise ValueError("time data '{:s}' not a recognized format".format(t))
