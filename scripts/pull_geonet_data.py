@@ -1,6 +1,10 @@
 import os, sys, traceback, smtplib, ssl, yagmail, shutil, argparse
 sys.path.insert(0, os.path.abspath('..'))
-from whakaari import *
+# from whakaari import *
+
+import obspy
+from obspy.clients.fdsn.mass_downloader import RectangularDomain, \
+    Restrictions, MassDownloader
 
 makedir = lambda name: os.makedirs(name, exist_ok=True)
 
@@ -139,5 +143,37 @@ def get_data_for_day(i,t0,station):
     df = pd.DataFrame(zip(*datas), columns=names, index=pd.Series(time))
     save_dataframe(df, '_tmp/_tmp_fl_{:05d}.csv'.format(i), index=True, index_label='time')
 
+def main2():
+
+    # Rectangular domain containing parts of southern Germany.
+    domain = RectangularDomain(minlatitude=-37.8, maxlatitude=-37.3,
+                            minlongitude=177, maxlongitude=177.4)
+
+    restrictions = Restrictions(
+        # Get data for a whole year.
+        starttime=obspy.UTCDateTime(1976, 12, 12),
+        endtime=obspy.UTCDateTime(2020, 10, 1),
+        # Chunk it to have one file per day.
+        chunklength_in_sec=86400,
+        # Considering the enormous amount of data associated with continuous
+        # requests, you might want to limit the data based on SEED identifiers.
+        # If the location code is specified, the location priority list is not
+        # used; the same is true for the channel argument and priority list.
+        network="NZ", station="WIZ", location="10", channel="HHZ",
+        # The typical use case for such a data set are noise correlations where
+        # gaps are dealt with at a later stage.
+        reject_channels_with_gaps=False,
+        # Same is true with the minimum length. All data might be useful.
+        minimum_length=0.0,
+        # Guard against the same station having different names.
+        minimum_interstation_distance_in_m=100.0)
+
+    # Restrict the number of providers if you know which serve the desired
+    # data. If in doubt just don't specify - then all providers will be
+    # queried.
+    mdl = MassDownloader(providers=["GEONET"])
+    mdl.download(domain, restrictions, mseed_storage="waveforms",
+                stationxml_storage="stations")
+
 if __name__ == "__main__":
-    main()
+    main2()
