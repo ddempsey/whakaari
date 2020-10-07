@@ -58,6 +58,7 @@ from sklearn.svm import SVC
 
 datas = ['rsam','mf','hf','dsar']
 all_classifiers = ["SVM","KNN",'DT','RF','NN','NB','LR']
+FMTS = ['%Y-%m-%d %H:%M:%S', '%Y-%m-%d', '%Y %m %d %H %M %S','%m/%d/%Y', '%m/%d/%Y %H:%M']
 _MONTH = timedelta(days=365.25/12)
 _DAY = timedelta(days=1.)
 
@@ -68,6 +69,8 @@ class TremorData(object):
         
         Attributes:
         -----------
+        volcano : str
+            Name of volcano to read data for. Must correspond to directory in ../data
         df : pandas.DataFrame
             Time series of tremor data and transforms.
         t0 : datetime.datetime
