@@ -1631,7 +1631,7 @@ def save_dataframe(df, fl, index=True, index_label=None):
         df.to_csv(fl, index=index, index_label=index_label)
     elif fl.endswith('.pkl'):
         fp = open(fl, 'wb')
-        pickle.dump(df,fp)
+        pickle.dump(df,fp,pickle.HIGHEST_PROTOCOL)
     elif fl.endswith('.hdf'):
         df.to_hdf(fl, 'test', format='fixed', mode='w')
     else:
