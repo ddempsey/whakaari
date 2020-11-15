@@ -426,7 +426,7 @@ def plot_dashboard(ys,ys0,fm,fm0,save):
     for tii,yi in zip(t0, y0):
         if yi > threshold:
             ax1.fill_between([tii, tii+fm0.dtf], [0,0], [100,100], color=[0.5,0.5,0.5], zorder=3)
-    ax1.plot(t, y0, 'm-', label='WSRZ ensemble mean', zorder=4, lw=0.75)
+    ax1.plot(t0, y0, 'm-', label='WSRZ ensemble mean', zorder=4, lw=0.75)
     ax1.fill_between([], [], [], color=[0.5,0.5,0.5], label='WSRZ alert')
     ax4.set_xlim([0,1]); ax4.set_xticks([])
     ax4.set_ylim([0,1]); ax4.set_yticks([])
