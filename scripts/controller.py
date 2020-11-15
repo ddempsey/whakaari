@@ -24,11 +24,13 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=FitFailedWarning)
 
 class Alert(object):
-    def __init__(self, mail_from, monitor_mail_to, alert_mail_to, keyfile):
+    def __init__(self, mail_from, monitor_mail_to_file, alert_mail_to_file, keyfile):
         # notification settings
         self.mail_from = mail_from
-        self.monitor_mail_to = monitor_mail_to
-        self.alert_mail_to = alert_mail_to
+        self.monitor_mail_to_file = monitor_mail_to_file
+        self.alert_mail_to_file = alert_mail_to_file
+        self.monitor_mail_to = get_emails(monitor_mail_to_file)
+        self.alert_mail_to = get_emails(alert_mail_to_file)
         self.key = Key(keyfile)
         # alert settings
         self.reset()
@@ -164,9 +166,9 @@ class Alert(object):
         )
             
 class Controller(object):
-    def __init__(self, mail_from, monitor_mail_to, alert_mail_to, keyfile, test=False):
+    def __init__(self, mail_from, monitor_mail_to_file, alert_mail_to_file, keyfile, test=False):
         self.test = test
-        self.alert = Alert(mail_from,monitor_mail_to,alert_mail_to,keyfile)
+        self.alert = Alert(mail_from,monitor_mail_to_file,alert_mail_to_file,keyfile)
     def run(self):
         """ Top-level function to update forecast.
         """
@@ -183,6 +185,10 @@ class Controller(object):
             heartbeat_update = 5
         tstart = time()
         while True:
+            # update email addresses
+            self.alert.monitor_mail_to = get_emails(self.alert.monitor_mail_to_file, self.alert.monitor_mail_to)
+            self.alert.alert_mail_to = get_emails(self.alert.alert_mail_to_file, self.alert.alert_mail_to)
+        
             # take start time of look
             t0 = time()
             print('running...')
@@ -594,6 +600,20 @@ def Key(keyfile):
         lns = fp.readlines()
     return dict([ln.strip().split(':') for ln in lns]) 
 
+def get_emails(from_file, prev=None):
+    try:
+        with open(from_file, 'r') as fp:
+            lns = fp.readlines()
+        monitor_mail_to = [ln.strip() for ln in lns]
+    except Exception as e:
+        if prev is not None:
+            fp = open('.'.join(from_file.split('.')[:-1])+'.err','w')
+            fp.write('{:s}\n'.format(traceback.format_exc()))
+            fp.close()
+            return prev
+        else:
+            raise e
+
 if __name__ == "__main__":  
   # set parameters
     keyfile = r'/home/ubuntu/twitter_keys.txt'
@@ -601,16 +621,10 @@ if __name__ == "__main__":
     
     # heartbeat and error raising emails
     monitor_mail_to_file = r'/home/ubuntu/whakaari_monitor_mail_to.txt'
-    with open(monitor_mail_to_file, 'r') as fp:
-        lns = fp.readlines()
-    monitor_mail_to = [ln.strip() for ln in lns]
     
     # forecast alert emails
     alert_mail_to_file = r'/home/ubuntu/whakaari_alert_mail_to.txt'
-    with open(alert_mail_to_file, 'r') as fp:
-        lns = fp.readlines()
-    alert_mail_to = [ln.strip() for ln in lns]
-
+    
     parser = argparse.ArgumentParser()
     parser.add_argument("-m", 
         type=str,
@@ -618,7 +632,7 @@ if __name__ == "__main__":
         help="flag indicating how controller is to run")
     args = parser.parse_args()
     if args.m == 'controller':
-        controller = Controller(mail_from, monitor_mail_to, alert_mail_to, keyfile)
+        controller = Controller(mail_from, monitor_mail_to_file, alert_mail_to_file, keyfile)
         controller.run()
     elif args.m == 'controller-test':
         controller = Controller(mail_from, monitor_mail_to, alert_mail_to, keyfile, test=True)
