@@ -1,5 +1,5 @@
 # Whakaari
-Eruption forecast model for Whakaari (White Island, New Zealand). This model implements a time series feature engineering and classification workflow that issues eruption alerts based on real-time tremor data.
+Eruption forecast model for Whakaari (White Island, New Zealand). This model implements a time series feature engineering and classification workflow that issues eruption alerts based on real-time tremor data. This is the real-time version for running on a VM with html forecaster output and email alerting.
 
 ## Installation
 
@@ -11,33 +11,52 @@ Ensure you have Anaconda Python 3.7 installed. Then
 git clone https://github.com/ddempsey/whakaari
 ```
 
-2. CD into the repo and create a conda environment
+2. CD into the repo, switch to the real-time branch and create a conda environment
 
 ```bash
 cd whakaari
+
+git checkout -b real-time origin/real-time
 
 conda env create -f environment.yml
 
 conda activate whakaari_env
 ```
 
+3. Install keyrings.alt
+
+```bash
+pip install keyrings.alt
+```
+
+4. Set up Apache web-server and change permissions of html folder
+
+```bash
+sudo apt install apache2
+
+sudo chmod 777 /var/www/html
+```
+
+then follow [these instructions](sudo apt install apache2 https://www.digitalocean.com/community/tutorials/how-to-install-the-apache-web-server-on-ubuntu-18-04-quickstart). 
+
 The installation has been tested on Windows, Mac and Unix operating systems. Total install with Anaconda Python should be less than 10 minutes.
 
-## Running models
-Three examples have been included in ```scripts/forecast_model.py```. 
+## Setting up the controller
+Open controller.py and under "__main__" make sure keyfile, mail_from, monitor_mail_to_file, alert_mail_to_file are appropriately set.
 
-The first, ```forecast_test()``` trains on a small subset of tremor data in 2012 and then constructs a forecast of the Aug 2013 eruption. It will take about 10 minutes to run on a desktop computer and produces a forecast image in ../plots/test/forecast_Aug2013.png
-
-The second, ```forecast_dec2019()``` trains on tremor data between 2011 and 2020 but *excluding* a two month period either side of the Dec 2019 eruption. It then constructs a model 'forecast' of this event. It could take several hours or a day to run depending on the cpus available for your computer.
-
-The third, ```forecast_now()```, is an online forecaster. It trains a model on all data between 2011 and 2020 *including* the Dec 2019 eruption. It then downloads the latest Whakaari tremor data from GeoNet and constructs a forecast for the next 48 hours. See associated paper for guidance on interpreting model consensus levels. The model may take several hours or a day the first time it is constructed, but subsequent updates should be quick.
-
-To run the models, open ```forecast_model.py```, comment/uncomment the forecasts you want to run, then in a terminal type
+## Running the controller
+Open a screen, activate the environment and then run the controller script
 ```bash
+screen -S controller
+
 cd scripts
 
-python forecast_model.py
+conda activate whakaari_env
+
+python controller.py
 ```
+
+Ctrl+A, Ctrl+D to close the screen and then exit the VM.
 
 ## Disclaimers
 1. This eruption forecast model is not guaranteed to predict every future eruption, it only increases the likelihood. In our paper, we discuss the conditions under which the forecast model is likely to perform poorly.
