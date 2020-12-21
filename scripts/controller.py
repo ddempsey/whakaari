@@ -621,14 +621,14 @@ def get_emails(from_file, prev=None):
 
 if __name__ == "__main__":  
   # set parameters
-    keyfile = r'/home/ubuntu/twitter_keys.txt'
+    keyfile = r'/home/rccuser/twitter_keys.txt'
     mail_from = 'noreply.whakaariforecaster@gmail.com'
     
     # heartbeat and error raising emails
-    monitor_mail_to_file = r'/home/ubuntu/whakaari_monitor_mail_to.txt'
+    monitor_mail_to_file = r'/home/rccuser/whakaari_monitor_mail_to.txt'
     
     # forecast alert emails
-    alert_mail_to_file = r'/home/ubuntu/whakaari_alert_mail_to.txt'
+    alert_mail_to_file = r'/home/rccuser/whakaari_alert_mail_to.txt'
     
     parser = argparse.ArgumentParser()
     parser.add_argument("-m", 
