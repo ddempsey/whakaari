@@ -327,6 +327,10 @@ def update_forecast():
             look_forward=2, data_streams=data_streams, root='online_forecaster_WIZ',savefile_type='pkl')
         fm0 = ForecastModel(ti='2013-05-01', tf=td0.tf, window=2, overlap=0.75, station='FWVZ',
             look_forward=2, data_streams=data_streams, root='online_forecaster_FWVZ',savefile_type='pkl')
+        for column in fm0.data.df.columns:
+            mn0,mn = fm0.data.df[column].mean(), fm.data.df[column].mean()
+            std0,std = fm0.data.df[column].std(), fm.data.df[column].std()
+            fm0.data.df[column].values = (fm0.data.df[column.values]-mn0)/std0*std+mn
         
         # The online forecaster is trained using all eruptions in the dataset. It only
         # needs to be trained once, or again after a new eruption.
