@@ -1180,7 +1180,7 @@ class ForecastModel(object):
 
         return forecast
     def hires_forecast(self, ti, tf, recalculate=True, save=None, root=None, nztimezone=False, 
-        n_jobs=None, threshold=0.8, alt_rsam=None, xlim=None):
+        n_jobs=None, threshold=0.8, alt_rsam=None, xlim=None, use_model=None):
         """ Construct forecast at resolution of data.
 
             Parameters:
@@ -1224,7 +1224,9 @@ class ForecastModel(object):
         _fm._extract_features(ti, tf)
 
         # predict on hires features
-        ys = _fm.forecast(ti, tf, recalculate, use_model=self.modeldir, n_jobs=n_jobs)
+        if use_model is None:
+            use_model = self.modeldir
+        ys = _fm.forecast(ti, tf, recalculate, use_model=use_model, n_jobs=n_jobs)
         
         if save is not None:
             self._plot_hires_forecast(ys, save, threshold, nztimezone=nztimezone, alt_rsam=alt_rsam, xlim=xlim)

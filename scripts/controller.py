@@ -312,7 +312,7 @@ def update_forecast():
         td = TremorData(station='WIZ')
         td.update()
 
-        td0 = TremorData(station='WSRZ')
+        td0 = TremorData(station='FWVZ')
         td0.update()
     except Exception:
         fp = open('update_geonet.err','w')
@@ -325,8 +325,8 @@ def update_forecast():
         data_streams = ['rsam','mf','hf','dsar']
         fm = ForecastModel(ti='2011-01-01', tf=td.tf, window=2, overlap=0.75, station='WIZ', 
             look_forward=2, data_streams=data_streams, root='online_forecaster_WIZ',savefile_type='pkl')
-        fm0 = ForecastModel(ti='2013-05-01', tf=td0.tf, window=2, overlap=0.75, station='WSRZ',
-            look_forward=2, data_streams=data_streams, root='online_forecaster_WSRZ',savefile_type='pkl')
+        fm0 = ForecastModel(ti='2013-05-01', tf=td0.tf, window=2, overlap=0.75, station='FWVZ',
+            look_forward=2, data_streams=data_streams, root='online_forecaster_FWVZ',savefile_type='pkl')
         
         # The online forecaster is trained using all eruptions in the dataset. It only
         # needs to be trained once, or again after a new eruption.
@@ -342,7 +342,8 @@ def update_forecast():
         # forecast from beginning of training period at high resolution
         tf = datetime.utcnow()
         ys = fm.hires_forecast(ti=datetimeify('2020-08-01'), tf=fm.data.tf, recalculate=True, n_jobs=1)
-        ys0 = fm0.hires_forecast(ti=datetimeify('2020-08-01'), tf=fm0.data.tf, recalculate=True, n_jobs=1) 
+        ys0 = fm0.hires_forecast(ti=datetimeify('2020-12-20'), tf=fm0.data.tf, recalculate=True, n_jobs=1,
+            use_model=ys0.modeldir+'/../online_forecaster_WIZ') 
 
         plot_dashboard(ys,ys0,fm,fm0,'current_forecast.png')
 
