@@ -326,12 +326,14 @@ def update_forecast():
         fm = ForecastModel(ti='2011-01-01', tf=td.tf, window=2, overlap=0.75, station='WIZ', 
             look_forward=2, data_streams=data_streams, root='online_forecaster_WIZ',savefile_type='pkl')
         fm0 = ForecastModel(ti='2013-05-01', tf=td0.tf, window=2, overlap=0.75, station='FWVZ',
-            look_forward=2, data_streams=data_streams, root='online_forecaster_FWVZ',savefile_type='pkl')
+            look_forward=2, data_streams=data_streams, root='online_forecaster_WSRZ',savefile_type='pkl')
         for column in fm0.data.df.columns:
-            mn0,mn = fm0.data.df[column].mean(), fm.data.df[column].mean()
-            std0,std = fm0.data.df[column].std(), fm.data.df[column].std()
-            fm0.data.df[column].values = (fm0.data.df[column.values]-mn0)/std0*std+mn
-        
+            if column == 'dsar':continue
+            dt0,dt = np.log10(fm0.data.df[column]).replace([np.inf, -np.inf], np.nan).dropna(),np.log10(fm.data.df[column]).replace([np.inf, -np.inf], np.nan).dropna()
+            mn0,mn = np.mean(dt0), np.mean(dt)
+            std0,std = np.std(dt0), np.std(dt)
+            fm0.data.df[column] = 10**((np.log10(fm0.data.df[column])-mn0)/std0*std+mn)
+            fm0.data.df[column] = fm0.data.df.fillna(0)
         # The online forecaster is trained using all eruptions in the dataset. It only
         # needs to be trained once, or again after a new eruption.
         # (Hint: feature matrices can be copied from other models to avoid long recalculations
@@ -346,8 +348,8 @@ def update_forecast():
         # forecast from beginning of training period at high resolution
         tf = datetime.utcnow()
         ys = fm.hires_forecast(ti=datetimeify('2020-08-01'), tf=fm.data.tf, recalculate=True, n_jobs=1)
-        ys0 = fm0.hires_forecast(ti=datetimeify('2020-12-20'), tf=fm0.data.tf, recalculate=True, n_jobs=1,
-            use_model=ys0.modeldir+'/../online_forecaster_WIZ') 
+        ys0 = fm0.hires_forecast(ti=datetimeify('2020-12-15'), tf=fm0.data.tf, recalculate=True, n_jobs=1,
+            use_model='/home/rccuser/code/whakaari/models/online_forecaster_WIZ') 
 
         plot_dashboard(ys,ys0,fm,fm0,'current_forecast.png')
 
@@ -470,7 +472,7 @@ def plot_dashboard(ys,ys0,fm,fm0,save):
     
     ax1.set_title('Whakaari Eruption Forecast (Historic)')
     ax2.set_title('WIZ forecast')
-    ax3.set_title('WSRZ forecast (experimental)')
+    ax3.set_title('FWVZ (Ruapehu) forecast (experimental)')
     ax4.set_title('Risk calculation (experimental)')
 
     tf = tmax 

@@ -1220,13 +1220,16 @@ class ForecastModel(object):
         if root is None:
             root = self.root+'_hires'
         _fm = ForecastModel(self.window, 1., self.look_forward, self.station, ti, tf, self.data_streams, root=root, savefile_type=self.savefile_type)
+        if use_model is not None:
+            self.modeldir = use_model
         _fm.compute_only_features = list(set([ft.split('__')[1] for ft in self._collect_features()[0]]))
         _fm._extract_features(ti, tf)
 
         # predict on hires features
-        if use_model is None:
-            use_model = self.modeldir
-        ys = _fm.forecast(ti, tf, recalculate, use_model=use_model, n_jobs=n_jobs)
+        #if use_model is None:
+        #    use_model = self.modeldir
+        _fm.classifier = self.classifier
+        ys = _fm.forecast(ti, tf, recalculate, use_model=self.modeldir, n_jobs=n_jobs)
         
         if save is not None:
             self._plot_hires_forecast(ys, save, threshold, nztimezone=nztimezone, alt_rsam=alt_rsam, xlim=xlim)
