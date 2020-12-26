@@ -327,6 +327,8 @@ def update_forecast():
             look_forward=2, data_streams=data_streams, root='online_forecaster_WIZ',savefile_type='pkl')
         fm0 = ForecastModel(ti='2013-05-01', tf=td0.tf, window=2, overlap=0.75, station='FWVZ',
             look_forward=2, data_streams=data_streams, root='online_forecaster_WSRZ',savefile_type='pkl')
+        fm1 = ForecastModel(ti='2006-09-28', tf='2006-10-08', window=2, overlap=0.75, station='FWVZ',
+            look_forward=2, data_streams=data_streams, root='WSRZ_2006_eruption',savefile_type='pkl')
         for column in fm0.data.df.columns:
             if column == 'dsar':continue
             dt0,dt = np.log10(fm0.data.df[column]).replace([np.inf, -np.inf], np.nan).dropna(),np.log10(fm.data.df[column]).replace([np.inf, -np.inf], np.nan).dropna()
@@ -334,6 +336,8 @@ def update_forecast():
             std0,std = np.std(dt0), np.std(dt)
             fm0.data.df[column] = 10**((np.log10(fm0.data.df[column])-mn0)/std0*std+mn)
             fm0.data.df[column] = fm0.data.df.fillna(0)
+            fm1.data.df[column] = 10**((np.log10(fm1.data.df[column])-mn0)/std0*std+mn)
+            fm1.data.df[column] = fm1.data.df.fillna(0)
         # The online forecaster is trained using all eruptions in the dataset. It only
         # needs to be trained once, or again after a new eruption.
         # (Hint: feature matrices can be copied from other models to avoid long recalculations
@@ -344,14 +348,18 @@ def update_forecast():
             retrain=False, n_jobs=1)      
         fm0.train(ti='2013-05-01', tf='2020-01-01', drop_features=drop_features, Ncl=500,
             retrain=False, n_jobs=1)      
+        fm1.train(ti='2006-09-28', tf='2006-10-08', drop_features=drop_features, Ncl=500,
+            retrain=False, n_jobs=1)      
         
         # forecast from beginning of training period at high resolution
         tf = datetime.utcnow()
         ys = fm.hires_forecast(ti=datetimeify('2020-08-01'), tf=fm.data.tf, recalculate=True, n_jobs=1)
         ys0 = fm0.hires_forecast(ti=datetimeify('2020-12-15'), tf=fm0.data.tf, recalculate=True, n_jobs=1,
             use_model='/home/rccuser/code/whakaari/models/online_forecaster_WIZ') 
+        ys1 = fm1.hires_forecast(ti='2006-09-28', tf='2006-10-08', recalculate=True, n_jobs=1,
+            use_model='/home/rccuser/code/whakaari/models/online_forecaster_WIZ') 
 
-        plot_dashboard(ys,ys0,fm,fm0,'current_forecast.png')
+        plot_dashboard(ys,ys0,ys1,fm,fm0,fm1,'current_forecast.png')
 
         al = (ys['consensus'].values[ys.index>(tf-fm.dtf)] > 0.8)*1.
         al0 = (ys0['consensus'].values[ys0.index>(tf-fm0.dtf)] > 0.8)*1.
@@ -368,7 +376,7 @@ def update_forecast():
         fp.close()
         return
 
-def plot_dashboard(ys,ys0,fm,fm0,save):
+def plot_dashboard(ys,ys0,ys1,fm,fm0,fm1,save):
     # parameters
     threshold = 0.8
     
@@ -381,15 +389,20 @@ def plot_dashboard(ys,ys0,fm,fm0,save):
     
     t = pd.to_datetime(ys.index.values)
     t0 = pd.to_datetime(ys0.index.values)
+    t1 = pd.to_datetime(ys1.index.values)
     rsam = fm.data.get_data(t[0], t[-1])['rsam']
     trsam = rsam.index
     rsam0 = fm0.data.get_data(t0[0], t0[-1])['rsam']
     trsam0 = rsam0.index
+    rsam1 = fm1.data.get_data(t1[0], t1[-1])['rsam']
+    trsam1 = rsam1.index
     
     t = to_nztimezone(t)
     trsam = to_nztimezone(trsam)
     t0 = to_nztimezone(t0)
     trsam0 = to_nztimezone(trsam0)
+    t1 = to_nztimezone(t1)
+    trsam1 = to_nztimezone(trsam1)
     
     ts = [t[-1], trsam[-1]]
     tmax = np.max(ts)
@@ -398,11 +411,14 @@ def plot_dashboard(ys,ys0,fm,fm0,save):
     
     ax2.set_xlabel('Local time')
     ax3.set_xlabel('Local time')
+    ax4.set_xlabel('Local time')
     y = np.mean(np.array([ys[col] for col in ys.columns]), axis=0)
     y0 = np.mean(np.array([ys0[col] for col in ys0.columns]), axis=0)
+    y1 = np.mean(np.array([ys1[col] for col in ys1.columns]), axis=0)
     
     ax2.set_xlim([tmax-timedelta(days=7), tmax])
     ax3.set_xlim([tmax0-timedelta(days=7), tmax0])
+    ax4.set_xlim([tmax1-timedelta(days=7), tmax1])
 
     for ax in [ax1,ax2]:
         ax.set_ylim([-0.05, 1.05])
@@ -448,15 +464,17 @@ def plot_dashboard(ys,ys0,fm,fm0,save):
 
     ax1.legend(loc=1, ncol=3)
 
-    ax3.set_ylim([-0.05, 1.05])
-    ax3.set_yticks([0,0.25,0.50,0.75,1.00])
-    ax3.set_ylabel('ensemble mean')
+    for ax in [ax3,ax4]:
+        ax.set_ylim([-0.05, 1.05])
+        ax.set_yticks([0,0.25,0.50,0.75,1.00])
+        ax.set_ylabel('ensemble mean')
 
-    # consensus threshold
-    ax3.axhline(threshold, color='k', linestyle=':', label='alert threshold', zorder=4)
+        # consensus threshold
+        ax.axhline(threshold, color='k', linestyle=':', label='alert threshold', zorder=4)
 
     # modelled alert
     ax3.plot(t0, y0, 'm-', label='ensemble mean', zorder=4, lw=0.75)
+    ax4.plot(t1, y1, 'm-', label='ensemble mean', zorder=4, lw=0.75)
     ax_ = ax3.twinx()
     ax_.set_ylabel('RSAM [$\mu$m s$^{-1}$]')
     ax_.set_ylim([0,5])
@@ -470,10 +488,20 @@ def plot_dashboard(ys,ys0,fm,fm0,save):
     ax3.fill_between([], [], [], color='y', label='eruption forecast')
     ax3.plot([],[],'k-', lw=0.75, label='RSAM')
     
+    ax_ = ax4.twinx()
+    ax_.set_ylabel('RSAM [$\mu$m s$^{-1}$]')
+    ax_.set_ylim([0,5])
+    ax_.set_xlim(ax4.get_xlim())
+    ax_.plot(trsam1, rsam1.values*1.e-3, 'k-', lw=0.75)
+
+    for tii,yi in zip(t0, y1):
+        if yi > threshold:
+            ax4.fill_between([tii, tii+fm1.dtf], [0,0], [100,100], color='y', zorder=3)
+
     ax1.set_title('Whakaari Eruption Forecast (Historic)')
     ax2.set_title('WIZ forecast')
     ax3.set_title('FWVZ (Ruapehu) forecast (experimental)')
-    ax4.set_title('Risk calculation (experimental)')
+    ax4.set_title('FWVZ (Ruapehu) forecast (experimental)')
 
     tf = tmax 
     ta = tf.replace(hour=0, minute=0, second=0)
@@ -496,6 +524,13 @@ def plot_dashboard(ys,ys0,fm,fm0,save):
     tfi = to_nztimezone([tfi])[0]
     ax3.text(0.025, 0.95, 'model last updated {:s}'.format(tfi.strftime('%H:%M, %d %b %Y')), size = 12, ha = 'left', 
         va = 'top', transform=ax3.transAxes)
+    
+    tf0 = tmax1
+    ta0 = tf0.replace(hour=0, minute=0, second=0)
+    xts = [ta0 - timedelta(days=i) for i in range(7)][::-1]
+    lxts = [xt.strftime('%d %b') for xt in xts]
+    ax4.set_xticks(xts)
+    ax4.set_xticklabels(lxts)
     
     ta = datetimeify('2020-08-01')
     xts = [ta.replace(month=i) for i in range(1, tf.month+1)]
