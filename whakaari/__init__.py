@@ -441,13 +441,23 @@ class ForecastModel(object):
         plot_feature_correlation
             Corner plot of feature correlation.
     """
-    def __init__(self, window, overlap, look_forward, station='WIZ', ti=None, tf=None, data_streams=['rsam','mf','hf','dsar'], root=None, savefile_type='csv'):
+    def __init__(self, window, overlap, look_forward, station='WIZ', ti=None, tf=None, data_streams=['rsam','mf','hf','dsar'], 
+        root=None, savefile_type='csv', mixed=None):
         self.window = window
         self.overlap = overlap
         self.station = station
         self.look_forward = look_forward
         self.data_streams = data_streams
         self.data = TremorData(self.station)
+        if mixed is not None:
+            self.fm2 = ForecastModel(window, overlap, look_forward, 'FWVZ', savefile_type='pkl')
+            [mn0,mn,std0,std] = mixed
+            for column in self.fm2.data.df.columns:
+                if column == 'dsar':continue
+                self.fm2.data.df[column] = 10**((np.log10(self.fm2.data.df[column])-mn0)/std0*std+mn)
+                self.fm2.data.df[column] = self.fm2.data.df[column].fillna(0)
+        else:
+            self.fm2 = None
         if any(['_' in ds for ds in data_streams]):
             self.data._compute_transforms()
         if any([d not in self.data.df.columns for d in self.data_streams]):
@@ -1023,6 +1033,14 @@ class ForecastModel(object):
         # get feature matrix and label vector
         fM, ys = self._load_data(self.ti_train, self.tf_train)
 
+        # add ruapehu eruption data
+        if self.fm2 is not None:
+            te = datetimeify('2006-10-04 09:30:00')
+            fM2, _ = self.fm2._load_data(te - self.look_forward*_DAY, te)
+            fM = pd.concat([fM]+5*[fM2], sort=False)
+            ys2 = pd.DataFrame([1 for i in range(fM2.shape[0])], columns=['label'], index=fM2.index)
+            ys = pd.concat([ys] +5*[ys2], sort=False)
+
         # manually drop features (columns)
         fM = self._drop_features(fM, drop_features)
 
@@ -1038,9 +1056,10 @@ class ForecastModel(object):
             raise ValueError("dimensions of feature matrix and label vector do not match")
         
         # select training subset
-        inds = (ys.index>=self.ti_train)&(ys.index<self.tf_train)
-        fM = fM.loc[inds]
-        ys = ys['label'].loc[inds]
+        if self.fm2 is None:
+            inds = (ys.index>=self.ti_train)&(ys.index<self.tf_train)
+            fM = fM.loc[inds]
+            ys = ys['label'].loc[inds]
 
         # set up model training
         if self.n_jobs > 1:
@@ -1133,13 +1152,6 @@ class ForecastModel(object):
             if len(tis)>0:
                 ti = np.min(tis)
 
-        # ys = []            
-        # # load existing predictions
-        # for fl in load_predictions:
-        #     # y = pd.read_csv(fl, index_col=0, parse_dates=['time'], infer_datetime_format=True)
-        #     y = load_dataframe(fl, index_col=0, parse_dates=['time'], infer_datetime_format=True)
-        #     ys.append(y)
-
         # generate new predictions
         if len(run_predictions)>0:
             # run_predictions = [(rp, rp.replace(model_path, self.preddir+os.sep).replace('.pkl','.{:s}'.format(self.savefile_type))) for rp in run_predictions]
@@ -1170,7 +1182,6 @@ class ForecastModel(object):
         ys = pd.concat(ys, axis=1, sort=False)
         consensus = np.mean([ys[col].values for col in ys.columns if 'pred' in col], axis=0)
         forecast = pd.DataFrame(consensus, columns=['consensus'], index=ys.index)
-        # forecast.to_csv('{:s}/consensus.csv'.format(self.preddir), index=True, index_label='time')
         save_dataframe(forecast, '{:s}/consensus.{:s}'.format(self.preddir,self.savefile_type), index=True, index_label='time')
         
         # memory management
