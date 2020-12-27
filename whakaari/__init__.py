@@ -442,18 +442,22 @@ class ForecastModel(object):
             Corner plot of feature correlation.
     """
     def __init__(self, window, overlap, look_forward, station='WIZ', ti=None, tf=None, data_streams=['rsam','mf','hf','dsar'], 
-        root=None, savefile_type='csv', mixed=None):
+        root=None, savefile_type='csv', mixed=False):
         self.window = window
         self.overlap = overlap
         self.station = station
         self.look_forward = look_forward
         self.data_streams = data_streams
         self.data = TremorData(self.station)
-        if mixed is not None:
+        if mixed:
             self.fm2 = ForecastModel(window, overlap, look_forward, 'FWVZ', savefile_type='pkl')
-            [mn0,mn,std0,std] = mixed
             for column in self.fm2.data.df.columns:
-                if column == 'dsar':continue
+                #if column == 'dsar':continue
+                dt0 = np.log10(self.data.df[column]).replace([np.inf, -np.inf], np.nan).dropna()
+                dt = np.log10(self.fm2.data.df[column]).replace([np.inf, -np.inf], np.nan).dropna()
+                mn0,mn = np.mean(dt0), np.mean(dt)
+                std0,std = np.std(dt0), np.std(dt)
+                                                    
                 self.fm2.data.df[column] = 10**((np.log10(self.fm2.data.df[column])-mn0)/std0*std+mn)
                 self.fm2.data.df[column] = self.fm2.data.df[column].fillna(0)
         else:
@@ -1037,9 +1041,10 @@ class ForecastModel(object):
         if self.fm2 is not None:
             te = datetimeify('2006-10-04 09:30:00')
             fM2, _ = self.fm2._load_data(te - self.look_forward*_DAY, te)
-            fM = pd.concat([fM]+5*[fM2], sort=False)
+            fM = pd.concat([fM]+[fM2], sort=False)
+            fM=fM[[col for col in fM.columns if ('dsar' not in col and 'change_quantiles' not in col)]]
             ys2 = pd.DataFrame([1 for i in range(fM2.shape[0])], columns=['label'], index=fM2.index)
-            ys = pd.concat([ys] +5*[ys2], sort=False)
+            ys = pd.concat([ys] +[ys2], sort=False)
 
         # manually drop features (columns)
         fM = self._drop_features(fM, drop_features)
@@ -1058,8 +1063,11 @@ class ForecastModel(object):
         # select training subset
         if self.fm2 is None:
             inds = (ys.index>=self.ti_train)&(ys.index<self.tf_train)
-            fM = fM.loc[inds]
-            ys = ys['label'].loc[inds]
+        else:
+            inds = ys.index>datetimeify('2000-01-01')
+
+        fM = fM.loc[inds]
+        ys = ys['label'].loc[inds]
 
         # set up model training
         if self.n_jobs > 1:
