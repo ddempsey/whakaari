@@ -353,8 +353,8 @@ def update_forecast():
             retrain=False, n_jobs=1)      
         fm1.train(ti=datetimeify('2006-09-28'), tf=datetimeify('2006-10-08'), drop_features=drop_features, Ncl=500,
             retrain=False, n_jobs=1)      
-        fm2.train(ti='2011-01-01', tf='2020-01-01', drop_features=drop_features, Ncl=500,
-            retrain=False, n_jobs=1)      
+        fm2.train(ti='2011-01-01', tf='2020-01-01', drop_features=drop_features, Ncl=20,
+                retrain=False, n_jobs=1)      
         
         # forecast from beginning of training period at high resolution
         tf = datetime.utcnow()
@@ -363,13 +363,13 @@ def update_forecast():
             use_model='/home/rccuser/code/whakaari/models/online_forecaster_WIZ') 
         ys1 = fm1.hires_forecast(ti=datetimeify('2006-09-28'), tf=datetimeify('2006-10-08'), recalculate=True, n_jobs=1,
             use_model='/home/rccuser/code/whakaari/models/online_forecaster_WIZ') 
-        ys2 = fm2.hires_forecast(ti=datetimeify('2020-12-15'), tf=fm0.data.tf, recalculate=True, n_jobs=1) 
+        ys2 = fm2.hires_forecast(ti=datetimeify('2020-12-15'), tf=fm2.data.tf, recalculate=True, n_jobs=1) 
 
         plot_dashboard(ys,ys0,ys1,ys2,fm,fm0,fm1,fm2,'current_forecast.png')
 
         al = (ys['consensus'].values[ys.index>(tf-fm.dtf)] > 0.8)*1.
         al0 = (ys0['consensus'].values[ys0.index>(tf-fm0.dtf)] > 0.8)*1.
-        al2 = (ys0['consensus'].values[ys2.index>(tf-fm0.dtf)] > 0.8)*1.
+        al2 = (ys2['consensus'].values[ys2.index>(tf-fm2.dtf)] > 0.8)*1.
         if len(al) == 0 and len(al0) == 0 and len(al2) == 0:
             in_alert = -1
         else:
@@ -670,6 +670,7 @@ def get_emails(from_file, prev=None):
         with open(from_file, 'r') as fp:
             lns = fp.readlines()
         monitor_mail_to = [ln.strip() for ln in lns]
+        return monitor_mail_to
     except Exception as e:
         if prev is not None:
             fp = open('.'.join(from_file.split('.')[:-1])+'.err','w')
