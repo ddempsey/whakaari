@@ -348,7 +348,7 @@ def update_forecast():
             retrain=False, n_jobs=1)      
         fm0.train(ti='2013-05-01', tf='2020-01-01', drop_features=drop_features, Ncl=500,
             retrain=False, n_jobs=1)      
-        fm1.train(ti='2006-09-28', tf='2006-10-08', drop_features=drop_features, Ncl=500,
+        fm1.train(ti=datetimeify('2006-09-28'), tf=datetimeify('2006-10-08'), drop_features=drop_features, Ncl=500,
             retrain=False, n_jobs=1)      
         
         # forecast from beginning of training period at high resolution
@@ -356,7 +356,7 @@ def update_forecast():
         ys = fm.hires_forecast(ti=datetimeify('2020-08-01'), tf=fm.data.tf, recalculate=True, n_jobs=1)
         ys0 = fm0.hires_forecast(ti=datetimeify('2020-12-15'), tf=fm0.data.tf, recalculate=True, n_jobs=1,
             use_model='/home/rccuser/code/whakaari/models/online_forecaster_WIZ') 
-        ys1 = fm1.hires_forecast(ti='2006-09-28', tf='2006-10-08', recalculate=True, n_jobs=1,
+        ys1 = fm1.hires_forecast(ti=datetimeify('2006-09-28'), tf=datetimeify('2006-10-08'), recalculate=True, n_jobs=1,
             use_model='/home/rccuser/code/whakaari/models/online_forecaster_WIZ') 
 
         plot_dashboard(ys,ys0,ys1,fm,fm0,fm1,'current_forecast.png')
@@ -408,6 +408,8 @@ def plot_dashboard(ys,ys0,ys1,fm,fm0,fm1,save):
     tmax = np.max(ts)
     ts0 = [t0[-1], trsam0[-1]]
     tmax0 = np.max(ts0)
+    ts1 = [t1[-1], trsam1[-1]]
+    tmax1 = np.max(ts1)
     
     ax2.set_xlabel('Local time')
     ax3.set_xlabel('Local time')
@@ -457,10 +459,10 @@ def plot_dashboard(ys,ys0,ys1,fm,fm0,fm1,save):
             ax1.fill_between([tii, tii+fm0.dtf], [0,0], [100,100], color=[0.5,0.5,0.5], zorder=3)
     ax1.plot(t0, y0, 'm-', label='WSRZ ensemble mean', zorder=4, lw=0.75)
     ax1.fill_between([], [], [], color=[0.5,0.5,0.5], label='WSRZ alert')
-    ax4.set_xlim([0,1]); ax4.set_xticks([])
-    ax4.set_ylim([0,1]); ax4.set_yticks([])
-    ax4.text(0.5,0.5,'Under Construction',fontstyle='italic',size=12,ha='center',va='center')
-    ax4.set_title('Time to exceed 10$^{-4}$ annual risk (experimental)')
+    #ax4.set_xlim([0,1]); ax4.set_xticks([])
+    #ax4.set_ylim([0,1]); ax4.set_yticks([])
+    #ax4.text(0.5,0.5,'Under Construction',fontstyle='italic',size=12,ha='center',va='center')
+    #ax4.set_title('Time to exceed 10$^{-4}$ annual risk (experimental)')
 
     ax1.legend(loc=1, ncol=3)
 
@@ -531,6 +533,9 @@ def plot_dashboard(ys,ys0,ys1,fm,fm0,fm1,save):
     lxts = [xt.strftime('%d %b') for xt in xts]
     ax4.set_xticks(xts)
     ax4.set_xticklabels(lxts)
+    te = datetimeify('2006-10-04 09:30:00')
+    te = to_nztimezone([te])[0]
+    ax4.axvline(te, color = 'r', linestyle=':')
     
     ta = datetimeify('2020-08-01')
     xts = [ta.replace(month=i) for i in range(1, tf.month+1)]
