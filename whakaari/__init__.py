@@ -173,7 +173,6 @@ class TremorData(object):
         """
         if failedobspyimport:
             raise ImportError('ObsPy import failed, cannot update data.')
-
         makedir('_tmp')
 
         # default data range if not given 
@@ -391,6 +390,8 @@ class ForecastModel(object):
             trying first to update it.
         n_jobs : int
             Number of CPUs to use for parallel tasks.
+        Ncl : int
+           Number of classifier models to train.
         rootdir : str
             Repository location on file system.
         plotdir : str
@@ -434,6 +435,8 @@ class ForecastModel(object):
             Construct forecast at resolution of data.
         plot_forecast
             Plot model forecast.
+        compute_CI
+            computes a 95% confidence interval of the model consensus
         plot_accuracy
             Plot performance metrics for model.
         plot_features
@@ -483,7 +486,7 @@ class ForecastModel(object):
         self.compute_only_features = []
         self.update_feature_matrix = True
         self.n_jobs = 6
-
+        self.Ncl = 500
         # naming convention and file system attributes
         self.savefile_type = savefile_type
         if root is None:
@@ -819,7 +822,7 @@ class ForecastModel(object):
         
         feats = []
         fls = glob('{:s}/*.fts'.format(self.modeldir))
-        for i,fl in enumerate(fls):
+        for fl in fls:
             if fl.split(os.sep)[-1].split('.')[0] in ['all','ranked']: continue
             with open(fl) as fp:
                 lns = fp.readlines()
@@ -955,7 +958,7 @@ class ForecastModel(object):
         ti = self.ti_model if ti is None else datetimeify(ti)
         tf = self.tf_model if tf is None else datetimeify(tf)
         return self._load_data(ti, tf)
-    def train(self, ti=None, tf=None, Nfts=20, Ncl=100, retrain=False, classifier="DT", random_seed=0,
+    def train(self, ti=None, tf=None, Nfts=20, retrain=False, classifier="DT", random_seed=0,
             drop_features=[], n_jobs=6, exclude_dates=[], use_only_features=[]):
         """ Construct classifier models.
 
@@ -967,8 +970,6 @@ class ForecastModel(object):
                 End of training period (default is end of model analysis period).
             Nfts : int
                 Number of most-significant features to use in classifier.
-            Ncl : int
-                Number of classifier models to train.
             retrain : boolean
                 Use saved models (False) or train new ones.
             classifier : str, list
@@ -1011,7 +1012,7 @@ class ForecastModel(object):
         if not retrain:
             run_models = False
             pref = type(get_classifier(self.classifier)[0]).__name__ 
-            for i in range(Ncl):         
+            for i in range(self.Ncl):         
                 if not os.path.isfile('{:s}/{:s}_{:04d}.pkl'.format(self.modeldir, pref, i)):
                     run_models = True
             if not run_models:
@@ -1051,8 +1052,8 @@ class ForecastModel(object):
         f = partial(train_one_model, fM, ys, Nfts, self.modeldir, self.classifier, retrain, random_seed)
 
         # train models with glorious progress bar
-        for i, _ in enumerate(mapper(f, range(Ncl))):
-            cf = (i+1)/Ncl
+        for i, _ in enumerate(mapper(f, range(self.Ncl))):
+            cf = (i+1)/self.Ncl
             print(f'building models: [{"#"*round(50*cf)+"-"*round(50*(1-cf))}] {100.*cf:.2f}%\r', end='') 
         if self.n_jobs > 1:
             p.close()
@@ -1180,7 +1181,7 @@ class ForecastModel(object):
 
         return forecast
     def hires_forecast(self, ti, tf, recalculate=True, save=None, root=None, nztimezone=False, 
-        n_jobs=None, threshold=0.8, alt_rsam=None, xlim=None):
+        n_jobs=None, threshold=0.888, alt_rsam=None, xlim=None):
         """ Construct forecast at resolution of data.
 
             Parameters:
@@ -1231,7 +1232,7 @@ class ForecastModel(object):
 
         return ys
     # plotting methods
-    def plot_forecast(self, ys, threshold=0.75, save=None, xlim=['2019-12-01','2020-02-01']):
+    def plot_forecast(self, ys, threshold=0.888, save=None, xlim=['2019-12-01','2020-02-01']):
         """ Plot model forecast.
 
             Parameters:
@@ -1313,7 +1314,22 @@ class ForecastModel(object):
         
         plt.savefig(save, dpi=400)
         plt.close(f)
-    def _plot_hires_forecast(self, ys, save, threshold=0.75, nztimezone=False, alt_rsam=None, xlim=None):
+    def compute_CI(self, y):
+        """ Computes a 95% confidence interval of the model consensus.
+
+        Parameters:
+        -----------
+        y : numpy.array
+            Model consensus returned by ForecastModel.forecast.
+        
+        Returns:
+        --------
+        ci : numpy.array
+            95% confidence interval of the model consensus
+        """
+        ci = 1.96*(np.sqrt(y*(1-y)/self.Ncl))
+        return ci
+    def _plot_hires_forecast(self, ys, save, threshold=0.888, nztimezone=False, alt_rsam=None, xlim=None):
         """ Plot model hires version of model forecast (single axes).
 
             Parameters:
@@ -1361,6 +1377,8 @@ class ForecastModel(object):
 
             # modelled alert
             ax.plot(t, y, 'c-', label='ensemble mean', zorder=4, lw=0.75)
+            ci = self.compute_CI(y)
+            ax.fill_between(t, (y-ci), (y+ci), color='c', zorder=5, alpha=0.3)
             ax_ = ax.twinx()
             ax_.set_ylabel('RSAM [$\mu$m s$^{-1}$]')
             ax_.set_ylim([0,5])
@@ -1721,8 +1739,37 @@ def get_classifier(classifier):
     
     return model, grid
 
+def outlierDetection(data, outlier_degree=0.5):
+    """ Determines whether a given data interval requires earthquake filtering
+
+    Parameters:
+    -----------
+    data : list
+        10 minute interval of a processed datastream (rsam, mf, hf, mfd, hfd).
+    outlier_degree : float
+        exponent (base 10) which determines the Z-score required to be considered an outlier.
+    
+    Returns:
+    --------
+    outlier : boolean
+        Is the maximum of the data considered an outlier?
+    maxIdx : int
+        Index of the maximum of the data
+    """
+    mean = np.mean(data)
+    std = np.std(data)
+    maxIdx = np.argmax(data)
+    # compute Z-score
+    Zscr = (data[maxIdx]-mean)/std
+    # Determine if an outlier
+    if Zscr > 10**outlier_degree:
+        outlier = True
+    else:
+        outlier = False
+    return outlier, maxIdx
+
 def get_data_for_day(i,t0,station):
-    """ Download WIZ data for given 24 hour period, writing data to temporary file.
+    """ Download and process WIZ data for given 24 hour period, writing data to temporary file.
 
         Parameters:
         -----------
@@ -1730,6 +1777,8 @@ def get_data_for_day(i,t0,station):
             Number of days that 24 hour download period is offset from initial date.
         t0 : datetime.datetime
             Initial date of data download period.
+        station : string
+            Name of the seismic station the data is to be downloaded from.
         
     """
     t0 = UTCDateTime(t0)
@@ -1768,31 +1817,64 @@ def get_data_for_day(i,t0,station):
         # round start time to nearest 10 min increment
     tiday = UTCDateTime("{:d}-{:02d}-{:02d} 00:00:00".format(ti.year, ti.month, ti.day))
     ti = tiday+int(np.round((ti-tiday)/600))*600
-    N = 600*100                             # 10 minute windows in seconds
-    Nm = int(N*np.floor(len(data)/N))
-    for data_stream, name in zip(data_streams, names):
-        filtered_data = bandpass(data, data_stream[0], data_stream[1], 100)
-        filtered_data = abs(filtered_data[:Nm])
-        datas.append(filtered_data.reshape(-1,N).mean(axis=-1)*1.e9)
-
-    # compute dsar
+    N = 600*100 # no. data points in 10 minutes
+    m = len(data)//N # no. 10 minute domains in data
+    Nm = N*m # no. data points within all 10 minute domains
+    data = data[:Nm] # Remove excess data points
+    numSubDomains = 4 # No. subdomains within each 10 minute domain
+    f = 0.1 # Asymmetry factor
+    subDomainRange = N//numSubDomains # No. data points per subDomain
+    _data = [] # Intialise list of unfiltered data streams
+    for data_stream, name in zip(data_streams, names): # For each data stream
+        filtered_data = bandpass(data, data_stream[0], data_stream[1], 100) # Frequnecy filter
+        filtered_data = abs(filtered_data)*1.e9 # Compute signal magnitude and scale
+        _data.append(filtered_data[:Nm]) # Add unfiltered data stream to list
+    # Compute data streams required for dsar computation
     data = cumtrapz(data, dx=1./100, initial=0)
     data -= np.mean(data)
     j = names.index('mf')
     mfd = bandpass(data, data_streams[j][0], data_streams[j][1], 100)
     mfd = abs(mfd[:Nm])
-    mfd = mfd.reshape(-1,N).mean(axis=-1)
+    _data.append(mfd)
+    names.append('mfd')
     j = names.index('hf')
     hfd = bandpass(data, data_streams[j][0], data_streams[j][1], 100)
     hfd = abs(hfd[:Nm])
-    hfd = hfd.reshape(-1,N).mean(axis=-1)
-    dsar = mfd/hfd
-    datas.append(dsar)
-    names.append('dsar')
-
+    _data.append(hfd)
+    names.append('hfd')
+    
+    # Filter out earthquakes
+    datas = [] # intialise list to store filtered data streams
+    for j,stream in enumerate(_data): # For each data stream
+        filtered_data = [] # Intialise list to store filtered data stream
+        for k in range(m): # For each 10 minute window in day
+            domain = stream[k*N:(k+1)*N] # Get data for current 10 minute window
+            outlier, maxIdx = outlierDetection(domain)
+            if outlier: # If data needs filtering
+                startIdx = int(maxIdx-np.floor(f*subDomainRange)) # Compute the index of the domain where the subdomain centered on the peak begins
+                endIdx = startIdx+subDomainRange # Find the end index of the subdomain
+                if endIdx >= N: # If end index exceeds data range
+                    Idx = list(range(endIdx-N)) # Wrap domain so continues from beginning of data range
+                    end = list(range(startIdx, N))
+                    Idx.extend(end)
+                elif startIdx < 0: # If starting index exceeds data range
+                    Idx = list(range(endIdx))
+                    end = list(range(N+startIdx, N)) # Wrap domains so continues at end of data range
+                    Idx.extend(end)
+                else:
+                    Idx = list(range(startIdx, endIdx))
+                domain = np.delete(domain, Idx) # remove the subDomain with the largest peak
+            filtered_data.append(np.mean(domain)) # Compute the average from the remaining sub domains and add it to list 
+        filtered_data = np.array(filtered_data) # Turn list into numpy array
+        if j == 4: # If just filtered the hfd data stream
+            datas[3] /= filtered_data # Convert mfd data stream into dsar
+        else:
+            datas.append(filtered_data) # Add filtered data to list
+    
     # write out temporary file
+    names = ['rsam','mf','hf','dsar']
     datas = np.array(datas)
-    time = [(ti+j*600).datetime for j in range(datas.shape[1])]
+    time = [(ti+(j+1)*600).datetime for j in range(datas.shape[1])]
     df = pd.DataFrame(zip(*datas), columns=names, index=pd.Series(time))
     save_dataframe(df, '_tmp/_tmp_fl_{:05d}.csv'.format(i), index=True, index_label='time')
 
@@ -1830,6 +1912,7 @@ def train_one_model(fM, ys, Nfts, modeldir, classifier, retrain, random_seed, ra
         return
     
     # train and save classifier
+    np.random.seed(random_seed)
     model_cv = GridSearchCV(model, grid, cv=ss, scoring="balanced_accuracy",error_score=np.nan)
     model_cv.fit(fMt,yst)
     _ = joblib.dump(model_cv.best_estimator_, fl, compress=3)
