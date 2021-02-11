@@ -958,7 +958,7 @@ class ForecastModel(object):
         ti = self.ti_model if ti is None else datetimeify(ti)
         tf = self.tf_model if tf is None else datetimeify(tf)
         return self._load_data(ti, tf)
-    def train(self, ti=None, tf=None, Nfts=20, retrain=False, classifier="DT", random_seed=0,
+    def train(self, ti=None, tf=None, Nfts=20, Ncl=None, retrain=False, classifier="DT", random_seed=0,
             drop_features=[], n_jobs=6, exclude_dates=[], use_only_features=[]):
         """ Construct classifier models.
 
@@ -970,6 +970,8 @@ class ForecastModel(object):
                 End of training period (default is end of model analysis period).
             Nfts : int
                 Number of most-significant features to use in classifier.
+            Ncl : int (depreciating... consider setting on line 489 [ForecastModel.__init__()])
+                Number of classifier models to train.
             retrain : boolean
                 Use saved models (False) or train new ones.
             classifier : str, list
@@ -1000,6 +1002,9 @@ class ForecastModel(object):
         self.exclude_dates = exclude_dates
         self.use_only_features = use_only_features
         self.n_jobs = n_jobs
+        if Ncl is not None:
+            print(f"Ncl in fm.train() is depreciating... consider hardcoding")
+            self.Ncl = Ncl
         makedir(self.modeldir)
 
         # initialise training interval
