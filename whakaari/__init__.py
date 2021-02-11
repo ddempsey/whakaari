@@ -66,6 +66,14 @@ makedir = lambda name: os.makedirs(name, exist_ok=True)
 class TremorData(object):
     """ Object to manage acquisition and processing of seismic data.
         
+        Parameters:
+        -----------
+        exclude_dates : list
+            List of time windows to exclude during training. Facilitates dropping of eruption 
+            windows within analysis period. E.g., exclude_dates = [['2012-06-01','2012-08-01'],
+            ['2015-01-01','2016-01-01']] will drop Jun-Aug 2012 and 2015-2016 from analysis.
+            NOTE: Required if using z score as data_stream
+
         Attributes:
         -----------
         df : pandas.DataFrame
@@ -84,10 +92,11 @@ class TremorData(object):
         plot
             Plot tremor data.
     """
-    def __init__(self, station='WIZ'):
+    def __init__(self, station='WIZ', exclude_dates=[]):
         self.station = station
         self.file = os.sep.join(getfile(currentframe()).split(os.sep)[:-2]+['data','{:s}_tremor_data.csv'.format(station)])
         self._assess()
+        self.exclude_dates = exclude_dates
     def __repr__(self):
         if self.exists:
             tm = [self.ti.year, self.ti.month, self.ti.day, self.ti.hour, self.ti.minute]
@@ -141,6 +150,26 @@ class TremorData(object):
                 data = data.append(self.df[col], ignore_index=True)
                 Z = abs(stft(data.values, window='nuttall', nperseg=seg*6, noverlap=seg*6-1, boundary=None)[2])
                 self.df['stft_'+col] = np.mean(Z[freq:freq+2,:],axis=0)
+            # zsc
+            if 'zsc_'+col not in self.df.columns:
+                # log data
+                dt = np.log10(self.df[col]).replace([np.inf, -np.inf], np.nan).dropna()
+                # dt = self.df[col].replace([np.inf, -np.inf], np.nan).dropna()
+                # Drop test data - Create temporary dataframe
+                if len(self.exclude_dates) != 0:
+                    for exclude_date_range in self.exclude_dates:
+                        t0,t1 = [datetimeify(date) for date in exclude_date_range]
+                        inds = (dt.index<t0)|(dt.index>=t1)
+                        dt = dt.loc[inds]
+                # Record mean/std/min
+                mn = np.mean(dt)
+                std = np.std(dt)
+                minzsc=min(dt)
+                # Calculate percentile - calculates the z score of the values in the WHOLE dataset using the mean and std of the temporary TRAINING dataset
+                self.df['zsc_'+col]=(np.log10(self.df[col])-mn)/std
+                # self.df['zsc_'+col]=(self.df[col]-mn)/std
+                self.df['zsc_'+col] = self.df['zsc_'+col].fillna(minzsc)
+                self.df['zsc_'+col]=10**self.df['zsc_'+col]
     def _is_eruption_in(self, days, from_time):
         """ Binary classification of eruption imminence.
 
@@ -332,12 +361,17 @@ class ForecastModel(object):
             Fraction of overlap between adjacent windows. Set this to 1. for overlap of entire window minus 1 data point.
         look_forward : float
             Length of look-forward in days.
+        exclude_dates : list
+            List of time windows to exclude during training. Facilitates dropping of eruption 
+            windows within analysis period. E.g., exclude_dates = [['2012-06-01','2012-08-01'],
+            ['2015-01-01','2016-01-01']] will drop Jun-Aug 2012 and 2015-2016 from analysis.
+            NOTE: Required if using z score as data_stream
         ti : str, datetime.datetime
             Beginning of analysis period. If not given, will default to beginning of tremor data.
         tf : str, datetime.datetime
             End of analysis period. If not given, will default to end of tremor data.
         data_streams : list
-            Data streams and transforms from which to extract features. Options are 'X', 'diff_X', 'log_X', 'inv_X', and 'stft_X' 
+            Data streams and transforms from which to extract features. Options are 'X', 'diff_X', 'log_X', 'inv_X', 'stft_X', and 'zsc_X',
             where X is one of 'rsam', 'mf', 'hf', or 'dsar'.            
         root : str 
             Naming convention for forecast files. If not given, will default to 'fm_*Tw*wndw_*eta*ovlp_*Tlf*lkfd_*ds*' where
@@ -444,12 +478,13 @@ class ForecastModel(object):
         plot_feature_correlation
             Corner plot of feature correlation.
     """
-    def __init__(self, window, overlap, look_forward, station='WIZ', ti=None, tf=None, data_streams=['rsam','mf','hf','dsar'], root=None, savefile_type='csv'):
+    def __init__(self, window, overlap, look_forward, station='WIZ', exclude_dates=[], ti=None, tf=None, data_streams=['rsam','mf','hf','dsar'], root=None, savefile_type='csv'):
         self.window = window
         self.overlap = overlap
         self.station = station
         self.look_forward = look_forward
         self.data_streams = data_streams
+        self.exclude_dates = exclude_dates
         self.data = TremorData(self.station)
         if any(['_' in ds for ds in data_streams]):
             self.data._compute_transforms()
@@ -481,7 +516,7 @@ class ForecastModel(object):
         self.dto = (1.-self.overlap)*self.dtw
         
         self.drop_features = []
-        self.exclude_dates = []
+        # self.exclude_dates = [] # MOVED to before self.data is created
         self.use_only_features = []
         self.compute_only_features = []
         self.update_feature_matrix = True
