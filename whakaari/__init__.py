@@ -1260,7 +1260,7 @@ class ForecastModel(object):
         # calculate hires feature matrix
         if root is None:
             root = self.root+'_hires'
-        _fm = ForecastModel(self.window, 1., self.look_forward, self.station, ti, tf, self.data_streams, root=root, savefile_type=self.savefile_type)
+        _fm = ForecastModel(self.window, 1., self.look_forward, self.station, self.exclude_dates, ti, tf, self.data_streams, root=root, savefile_type=self.savefile_type)
         _fm.compute_only_features = list(set([ft.split('__')[1] for ft in self._collect_features()[0]]))
         _fm._extract_features(ti, tf)
 
