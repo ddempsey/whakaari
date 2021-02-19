@@ -10,6 +10,7 @@ import numpy as np
 from datetime import datetime, timedelta, date
 from copy import copy
 from matplotlib import pyplot as plt
+import matplotlib.ticker as mtick
 from inspect import getfile, currentframe
 from glob import glob
 import pandas as pd
@@ -20,6 +21,7 @@ from time import time
 from scipy.integrate import cumtrapz
 from scipy.signal import stft
 from scipy.optimize import curve_fit
+from scipy.special import expit
 from corner import corner
 from functools import partial
 from fnmatch import fnmatch
@@ -66,6 +68,14 @@ makedir = lambda name: os.makedirs(name, exist_ok=True)
 class TremorData(object):
     """ Object to manage acquisition and processing of seismic data.
         
+        Parameters:
+        -----------
+        exclude_dates : list
+            List of time windows to exclude during training. Facilitates dropping of eruption 
+            windows within analysis period. E.g., exclude_dates = [['2012-06-01','2012-08-01'],
+            ['2015-01-01','2016-01-01']] will drop Jun-Aug 2012 and 2015-2016 from analysis.
+            NOTE: Required if using z score as data_stream
+
         Attributes:
         -----------
         df : pandas.DataFrame
@@ -84,10 +94,11 @@ class TremorData(object):
         plot
             Plot tremor data.
     """
-    def __init__(self, station='WIZ'):
+    def __init__(self, station='WIZ', exclude_dates=[]):
         self.station = station
         self.file = os.sep.join(getfile(currentframe()).split(os.sep)[:-2]+['data','{:s}_tremor_data.csv'.format(station)])
         self._assess()
+        self.exclude_dates = exclude_dates
     def __repr__(self):
         if self.exists:
             tm = [self.ti.year, self.ti.month, self.ti.day, self.ti.hour, self.ti.minute]
@@ -141,6 +152,26 @@ class TremorData(object):
                 data = data.append(self.df[col], ignore_index=True)
                 Z = abs(stft(data.values, window='nuttall', nperseg=seg*6, noverlap=seg*6-1, boundary=None)[2])
                 self.df['stft_'+col] = np.mean(Z[freq:freq+2,:],axis=0)
+            # zsc
+            if 'zsc_'+col not in self.df.columns:
+                # log data
+                dt = np.log10(self.df[col]).replace([np.inf, -np.inf], np.nan).dropna()
+                # dt = self.df[col].replace([np.inf, -np.inf], np.nan).dropna()
+                # Drop test data - Create temporary dataframe
+                if len(self.exclude_dates) != 0:
+                    for exclude_date_range in self.exclude_dates:
+                        t0,t1 = [datetimeify(date) for date in exclude_date_range]
+                        inds = (dt.index<t0)|(dt.index>=t1)
+                        dt = dt.loc[inds]
+                # Record mean/std/min
+                mn = np.mean(dt)
+                std = np.std(dt)
+                minzsc=min(dt)
+                # Calculate percentile - calculates the z score of the values in the WHOLE dataset using the mean and std of the temporary TRAINING dataset
+                self.df['zsc_'+col]=(np.log10(self.df[col])-mn)/std
+                # self.df['zsc_'+col]=(self.df[col]-mn)/std
+                self.df['zsc_'+col] = self.df['zsc_'+col].fillna(minzsc)
+                self.df['zsc_'+col]=10**self.df['zsc_'+col]
     def _is_eruption_in(self, days, from_time):
         """ Binary classification of eruption imminence.
 
@@ -173,7 +204,6 @@ class TremorData(object):
         """
         if failedobspyimport:
             raise ImportError('ObsPy import failed, cannot update data.')
-
         makedir('_tmp')
 
         # default data range if not given 
@@ -333,12 +363,17 @@ class ForecastModel(object):
             Fraction of overlap between adjacent windows. Set this to 1. for overlap of entire window minus 1 data point.
         look_forward : float
             Length of look-forward in days.
+        exclude_dates : list
+            List of time windows to exclude during training. Facilitates dropping of eruption 
+            windows within analysis period. E.g., exclude_dates = [['2012-06-01','2012-08-01'],
+            ['2015-01-01','2016-01-01']] will drop Jun-Aug 2012 and 2015-2016 from analysis.
+            NOTE: Required if using z score as data_stream
         ti : str, datetime.datetime
             Beginning of analysis period. If not given, will default to beginning of tremor data.
         tf : str, datetime.datetime
             End of analysis period. If not given, will default to end of tremor data.
         data_streams : list
-            Data streams and transforms from which to extract features. Options are 'X', 'diff_X', 'log_X', 'inv_X', and 'stft_X' 
+            Data streams and transforms from which to extract features. Options are 'X', 'diff_X', 'log_X', 'inv_X', 'stft_X', and 'zsc_X',
             where X is one of 'rsam', 'mf', 'hf', or 'dsar'.            
         root : str 
             Naming convention for forecast files. If not given, will default to 'fm_*Tw*wndw_*eta*ovlp_*Tlf*lkfd_*ds*' where
@@ -391,6 +426,8 @@ class ForecastModel(object):
             trying first to update it.
         n_jobs : int
             Number of CPUs to use for parallel tasks.
+        Ncl : int
+           Number of classifier models to train.
         rootdir : str
             Repository location on file system.
         plotdir : str
@@ -434,6 +471,8 @@ class ForecastModel(object):
             Construct forecast at resolution of data.
         plot_forecast
             Plot model forecast.
+        compute_CI
+            computes a 95% confidence interval of the model consensus
         plot_accuracy
             Plot performance metrics for model.
         plot_features
@@ -441,12 +480,13 @@ class ForecastModel(object):
         plot_feature_correlation
             Corner plot of feature correlation.
     """
-    def __init__(self, window, overlap, look_forward, station='WIZ', ti=None, tf=None, data_streams=['rsam','mf','hf','dsar'], root=None, savefile_type='csv'):
+    def __init__(self, window, overlap, look_forward, station='WIZ', exclude_dates=[], ti=None, tf=None, data_streams=['rsam','mf','hf','dsar'], root=None, savefile_type='csv'):
         self.window = window
         self.overlap = overlap
         self.station = station
         self.look_forward = look_forward
         self.data_streams = data_streams
+        self.exclude_dates = exclude_dates
         self.data = TremorData(self.station)
         if any(['_' in ds for ds in data_streams]):
             self.data._compute_transforms()
@@ -478,12 +518,12 @@ class ForecastModel(object):
         self.dto = (1.-self.overlap)*self.dtw
         
         self.drop_features = []
-        self.exclude_dates = []
+        # self.exclude_dates = [] # MOVED to before self.data is created
         self.use_only_features = []
         self.compute_only_features = []
         self.update_feature_matrix = True
         self.n_jobs = 6
-
+        self.Ncl = 500
         # naming convention and file system attributes
         self.savefile_type = savefile_type
         if root is None:
@@ -819,7 +859,7 @@ class ForecastModel(object):
         
         feats = []
         fls = glob('{:s}/*.fts'.format(self.modeldir))
-        for i,fl in enumerate(fls):
+        for fl in fls:
             if fl.split(os.sep)[-1].split('.')[0] in ['all','ranked']: continue
             with open(fl) as fp:
                 lns = fp.readlines()
@@ -955,7 +995,7 @@ class ForecastModel(object):
         ti = self.ti_model if ti is None else datetimeify(ti)
         tf = self.tf_model if tf is None else datetimeify(tf)
         return self._load_data(ti, tf)
-    def train(self, ti=None, tf=None, Nfts=20, Ncl=100, retrain=False, classifier="DT", random_seed=0,
+    def train(self, ti=None, tf=None, Nfts=20, Ncl=None, retrain=False, classifier="DT", random_seed=0,
             drop_features=[], n_jobs=6, exclude_dates=[], use_only_features=[]):
         """ Construct classifier models.
 
@@ -967,7 +1007,7 @@ class ForecastModel(object):
                 End of training period (default is end of model analysis period).
             Nfts : int
                 Number of most-significant features to use in classifier.
-            Ncl : int
+            Ncl : int (depreciating... consider setting on line 489 [ForecastModel.__init__()])
                 Number of classifier models to train.
             retrain : boolean
                 Use saved models (False) or train new ones.
@@ -999,6 +1039,9 @@ class ForecastModel(object):
         self.exclude_dates = exclude_dates
         self.use_only_features = use_only_features
         self.n_jobs = n_jobs
+        if Ncl is not None:
+            print(f"Ncl in fm.train() is depreciating... consider hardcoding")
+            self.Ncl = Ncl
         makedir(self.modeldir)
 
         # initialise training interval
@@ -1011,7 +1054,7 @@ class ForecastModel(object):
         if not retrain:
             run_models = False
             pref = type(get_classifier(self.classifier)[0]).__name__ 
-            for i in range(Ncl):         
+            for i in range(self.Ncl):         
                 if not os.path.isfile('{:s}/{:s}_{:04d}.pkl'.format(self.modeldir, pref, i)):
                     run_models = True
             if not run_models:
@@ -1051,8 +1094,8 @@ class ForecastModel(object):
         f = partial(train_one_model, fM, ys, Nfts, self.modeldir, self.classifier, retrain, random_seed)
 
         # train models with glorious progress bar
-        for i, _ in enumerate(mapper(f, range(Ncl))):
-            cf = (i+1)/Ncl
+        for i, _ in enumerate(mapper(f, range(self.Ncl))):
+            cf = (i+1)/self.Ncl
             print(f'building models: [{"#"*round(50*cf)+"-"*round(50*(1-cf))}] {100.*cf:.2f}%\r', end='') 
         if self.n_jobs > 1:
             p.close()
@@ -1062,7 +1105,7 @@ class ForecastModel(object):
         del fM
         gc.collect()
         self._collect_features()
-    def forecast(self, ti=None, tf=None, recalculate=False, use_model=None, n_jobs=None):
+    def forecast(self, ti=None, tf=None, recalculate=False, use_model=None, n_jobs=None, sig_params=None):
         """ Use classifier models to forecast eruption likelihood.
 
             Parameters:
@@ -1078,6 +1121,8 @@ class ForecastModel(object):
                 Optionally pass path to pre-trained model directory in 'models'.
             n_jobs : int
                 Number of cores to use.
+            sig_params : None or dict/list/tuple
+                If given, apply sigmoid parameters to predictions. These are calculated using calibration script
 
             Returns:
             --------
@@ -1170,6 +1215,10 @@ class ForecastModel(object):
         ys = pd.concat(ys, axis=1, sort=False)
         consensus = np.mean([ys[col].values for col in ys.columns if 'pred' in col], axis=0)
         forecast = pd.DataFrame(consensus, columns=['consensus'], index=ys.index)
+
+        if sig_params is not None:
+            self.sig_params = sig_params
+            forecast['probability'] = forecast['consensus'].apply(sigmoid, sig_params=sig_params)
         # forecast.to_csv('{:s}/consensus.csv'.format(self.preddir), index=True, index_label='time')
         save_dataframe(forecast, '{:s}/consensus.{:s}'.format(self.preddir,self.savefile_type), index=True, index_label='time')
         
@@ -1180,7 +1229,7 @@ class ForecastModel(object):
 
         return forecast
     def hires_forecast(self, ti, tf, recalculate=True, save=None, root=None, nztimezone=False, 
-        n_jobs=None, threshold=0.8, alt_rsam=None, xlim=None):
+        n_jobs=None, threshold=0.888, alt_rsam=None, xlim=None, sig_params=None):
         """ Construct forecast at resolution of data.
 
             Parameters:
@@ -1200,6 +1249,8 @@ class ForecastModel(object):
                 Flag to plot forecast using NZ time zone instead of UTC.            
             n_jobs : int
                 CPUs to use when forecasting in parallel.
+            sig_params : None or dict/list/tuple
+                If given, apply sigmoid parameters to predictions. These are calculated using calibration script
             Notes:
             ------
             Requires model to have already been trained.
@@ -1219,19 +1270,23 @@ class ForecastModel(object):
         # calculate hires feature matrix
         if root is None:
             root = self.root+'_hires'
-        _fm = ForecastModel(self.window, 1., self.look_forward, self.station, ti, tf, self.data_streams, root=root, savefile_type=self.savefile_type)
+        _fm = ForecastModel(self.window, 1., self.look_forward, self.station, self.exclude_dates, ti, tf, self.data_streams, root=root, savefile_type=self.savefile_type)
         _fm.compute_only_features = list(set([ft.split('__')[1] for ft in self._collect_features()[0]]))
         _fm._extract_features(ti, tf)
 
         # predict on hires features
-        ys = _fm.forecast(ti, tf, recalculate, use_model=self.modeldir, n_jobs=n_jobs)
+        ys = _fm.forecast(ti, tf, recalculate, use_model=self.modeldir, n_jobs=n_jobs, sig_params=sig_params)
         
         if save is not None:
             self._plot_hires_forecast(ys, save, threshold, nztimezone=nztimezone, alt_rsam=alt_rsam, xlim=xlim)
+            if sig_params is not None: # Assume user wants both hires forecasts as model output and probability
+                save=save.split('.png')[0]
+                c_save = f'{save}_calibrated.png'
+                self._plot_hires_forecast_calibrated(ys, c_save, sigmoid(threshold,sig_params), nztimezone=nztimezone, alt_rsam=alt_rsam, xlim=xlim)
 
         return ys
     # plotting methods
-    def plot_forecast(self, ys, threshold=0.75, save=None, xlim=['2019-12-01','2020-02-01']):
+    def plot_forecast(self, ys, threshold=0.888, save=None, xlim=['2019-12-01','2020-02-01']):
         """ Plot model forecast.
 
             Parameters:
@@ -1269,7 +1324,7 @@ class ForecastModel(object):
         t = ys.index
 
         # average individual model responses
-        ys = np.mean(np.array([ys[col] for col in ys.columns]), axis=0)
+        ys = np.mean(np.array([ys[col] for col in ys.columns if 'probability' not in col]), axis=0)
         for i,ax in enumerate(axs):
 
             ax.set_ylim([-0.05, 1.05])
@@ -1313,7 +1368,22 @@ class ForecastModel(object):
         
         plt.savefig(save, dpi=400)
         plt.close(f)
-    def _plot_hires_forecast(self, ys, save, threshold=0.75, nztimezone=False, alt_rsam=None, xlim=None):
+    def compute_CI(self, y):
+        """ Computes a 95% confidence interval of the model consensus.
+
+        Parameters:
+        -----------
+        y : numpy.array
+            Model consensus returned by ForecastModel.forecast.
+        
+        Returns:
+        --------
+        ci : numpy.array
+            95% confidence interval of the model consensus
+        """
+        ci = 1.96*(np.sqrt(y*(1-y)/self.Ncl))
+        return ci
+    def _plot_hires_forecast(self, ys, save, threshold=0.888, nztimezone=False, alt_rsam=None, xlim=None):
         """ Plot model hires version of model forecast (single axes).
 
             Parameters:
@@ -1343,7 +1413,7 @@ class ForecastModel(object):
                 alt_trsam = to_nztimezone(alt_trsam)
         else:
             ax2.set_xlabel('UTC')
-        y = np.mean(np.array([ys[col] for col in ys.columns]), axis=0)
+        y = np.mean(np.array([ys[col] for col in ys.columns if 'probability' not in col]), axis=0)
         
         ts = [t[-1], trsam[-1]]
         if alt_rsam is not None: ts.append(alt_trsam[-1])
@@ -1361,6 +1431,8 @@ class ForecastModel(object):
 
             # modelled alert
             ax.plot(t, y, 'c-', label='ensemble mean', zorder=4, lw=0.75)
+            ci = self.compute_CI(y)
+            ax.fill_between(t, (y-ci), (y+ci), color='c', zorder=5, alpha=0.3)
             ax_ = ax.twinx()
             ax_.set_ylabel('RSAM [$\mu$m s$^{-1}$]')
             ax_.set_ylim([0,5])
@@ -1399,6 +1471,186 @@ class ForecastModel(object):
         ax1.set_xticks(xts)
         ax1.set_xticklabels(lxts)
         ax1.text(0.025, 0.95, t0.strftime('%Y'), size = 12, ha = 'left', 
+            va = 'top', transform=ax1.transAxes)
+
+        plt.savefig(save, dpi=400)
+        plt.close(f)
+    def plot_forecast_calibrated(self, ys, threshold=0.025, save=None, xlim=['2019-12-01','2020-02-01']):
+        """ Plot model forecast.
+
+            Parameters:
+            -----------
+            ys : pandas.DataFrame
+                Model forecast returned by ForecastModel.forecast.
+            threshold : float
+                Probability Threshold to declare alert.
+            save : str
+                File name to save figure.
+            local_time : bool
+                If True, switches plotting to local time (default is UTC).
+
+        """
+        makedir(self.plotdir)
+        if save is None:
+            save = '{:s}/forecast.png'.format(self.plotdir)
+        # set up figures and axes
+        f = plt.figure(figsize=(24,15))
+        N = 10
+        dy1,dy2 = 0.05, 0.05
+        dy3 = (1.-dy1-(N//2)*dy2)/(N//2)
+        dx1,dx2 = 0.37,0.04
+        axs = [plt.axes([0.10+(1-i//(N/2))*(dx1+dx2), dy1+(i%(N/2))*(dy2+dy3), dx1, dy3]) for i in range(N)][::-1]
+
+        for i,ax in enumerate(axs[:-1]):
+            ti,tf = [datetime.strptime('{:d}-01-01 00:00:00'.format(2011+i), '%Y-%m-%d %H:%M:%S'),
+                datetime.strptime('{:d}-01-01 00:00:00'.format(2012+i), '%Y-%m-%d %H:%M:%S')]
+            ax.set_xlim([ti,tf])
+            ax.text(0.01,0.95,'{:4d}'.format(2011+i), transform=ax.transAxes, va='top', ha='left', size=16)
+
+        ti,tf = [datetimeify(x) for x in xlim]
+        axs[-1].set_xlim([ti, tf])
+
+        # model forecast is generated for the END of each data window
+        t = ys.index
+
+        # calibrated probabilities
+        ps = np.array(ys['probability'])
+
+        for i,ax in enumerate(axs):
+
+            ax.set_ylim([-0.005, 0.06]) # ylimit for probabilities
+            ax.set_yticks([0, 0.02, 0.04, 0.06])
+            ax.yaxis.set_major_formatter(mtick.PercentFormatter(xmax=1)) # Formatting ticks as percentages
+            if i//(N/2) == 0:
+                ax.set_ylabel('eruption probability')
+            else:
+                ax.set_yticklabels([])
+
+            # shade training data
+            ax.fill_between([self.ti_train, self.tf_train],[-0.05,-0.05],[1.05,1.05], color=[0.85,1,0.85], zorder=1, label='training data')
+            for exclude_date_range in self.exclude_dates:
+                t0,t1 = [datetimeify(dt) for dt in exclude_date_range]
+                ax.fill_between([t0, t1],[-0.05,-0.05],[1.05,1.05], color=[1,1,1], zorder=2)
+
+            # consensus threshold
+            ax.axhline(threshold, color='k', linestyle=':', label='alert threshold', zorder=4)
+
+            # modelled alert
+            ax.plot(t, ps, 'c-', label='modelled alert', zorder=4)
+
+            # eruptions
+            for te in self.data.tes:
+                ax.axvline(te, color='k', linestyle='-', zorder=5)
+            ax.axvline(te, color='k', linestyle='-', label='eruption')
+
+        for tii,pi in zip(t, ps):
+            if pi > threshold:
+                i = (tii.year-2011)
+                axs[i].fill_between([tii, tii+self.dtf], [0,0], [1,1], color='y', zorder=3)
+                j = (tii+self.dtf).year - 2011
+                if j != i:
+                    axs[j].fill_between([tii, tii+self.dtf], [0,0], [1,1], color='y', zorder=3)
+
+                if tii > ti:
+                    axs[-1].fill_between([tii, tii+self.dtf], [0,0], [1,1], color='y', zorder=3)
+
+        for ax in axs:
+            ax.fill_between([], [], [], color='y', label='eruption forecast')
+        axs[-1].legend()
+
+        plt.savefig(save, dpi=400)
+        plt.close(f)
+    def _plot_hires_forecast_calibrated(self, ys, save, threshold=0.025, nztimezone=False, alt_rsam=None, xlim=None):
+        """ Probability version of Plot model hires version of model forecast (single axes).
+
+            Parameters:
+            -----------
+            ys : pandas.DataFrame
+                Model forecast returned by ForecastModel.forecast.
+            threshold : float
+                Probability Threshold to declare alert.
+            save : str
+                File name to save figure.
+        """
+        makedir(self.plotdir)
+        # set up figures and axes
+        f = plt.figure(figsize=(8,8))
+        ax1 = plt.axes([0.1, 0.55, 0.8, 0.4])
+        ax2 = plt.axes([0.1, 0.08, 0.8, 0.4])
+        t = pd.to_datetime(ys.index.values)
+        rsam = self.data.get_data(t[0], t[-1])['rsam']
+        trsam = rsam.index
+        if alt_rsam is not None:
+            alt_trsam = alt_rsam.index
+        if nztimezone:
+            t = to_nztimezone(t)
+            trsam = to_nztimezone(trsam)
+            ax2.set_xlabel('Local time')
+            if alt_rsam is not None:
+                alt_trsam = to_nztimezone(alt_trsam)
+        else:
+            ax2.set_xlabel('UTC')
+        p = np.array(ys['probability']) # Make sure using probability for plots
+
+        ts = [t[-1], trsam[-1]]
+        if alt_rsam is not None: ts.append(alt_trsam[-1])
+        tmax = np.max(ts)
+        ax2.set_xlim([tmax-timedelta(days=7), tmax])
+        ax1.set_xlim([t[0], tmax])
+        ax1.set_title('Whakaari Eruption Forecast Probabilities')
+        for ax in [ax1,ax2]:
+            ax.set_ylim([-0.005, 0.06]) # ylimit for probabilities
+            ax.set_yticks([0, 0.02, 0.04, 0.06])
+            ax.yaxis.set_major_formatter(mtick.PercentFormatter(xmax=1)) # Formatting ticks as percentages
+            ax.set_ylabel('probability')
+
+            # consensus threshold
+            ax.axhline(threshold, color='k', linestyle=':', label='alert threshold', zorder=4)
+
+            # modelled alert
+            ax.plot(t, p, 'c-', label='probability', zorder=4, lw=0.75)
+            y = np.mean(np.array([ys[col] for col in ys.columns if 'probability' not in col]), axis=0)
+            # convert regular model consensus confidence interval to probability space
+            ci = self.compute_CI(y)
+            ax.fill_between(t, sigmoid(y-ci, self.sig_params), sigmoid(y+ci, self.sig_params), color='c', zorder=5, alpha=0.3)
+            ax_ = ax.twinx()
+            ax_.set_ylabel('RSAM [$\mu$m s$^{-1}$]')
+            ax_.set_ylim([0,5])
+            ax_.set_xlim(ax.get_xlim())
+            if alt_rsam is not None:
+                ax_.plot(alt_trsam, alt_rsam.values*1.e-3, '-', color=[0.5,0.5,0.5], lw=0.75)
+            ax_.plot(trsam, rsam.values*1.e-3, 'k-', lw=0.75)
+
+            for tii,pi in zip(t, p):
+                if pi > threshold:
+                    ax.fill_between([tii, tii+self.dtf], [0,0], [100,100], color='y', zorder=3)
+
+            ax.fill_between([], [], [], color='y', label='eruption forecast')
+            ax.plot([],[],'k-', lw=0.75, label='RSAM')
+            if alt_rsam is not None:
+                ax.plot([],[],'-', color=[0.5,0.5,0.5], lw=0.75, label='RSAM (WSRZ-scaled)')
+        ax1.legend(loc=1, ncol=2)
+        if xlim is not None: 
+            ax2.set_xlim(xlim)
+            tmax = xlim[-1] 
+        tf = tmax 
+        t0 = tf.replace(hour=0, minute=0, second=0)
+        xts = [t0 - timedelta(days=i) for i in range(7)][::-1]
+        lxts = [xt.strftime('%d %b') for xt in xts]
+        ax2.set_xticks(xts)
+        ax2.set_xticklabels(lxts)
+        tfi  = self.data.tf
+        if nztimezone:
+            tfi = to_nztimezone([tfi])[0]
+        ax2.text(0.025, 0.95, 'model last updated {:s}'.format(tfi.strftime('%H:%M, %d %b %Y')), size = 12, ha = 'left',
+            va = 'top', transform=ax2.transAxes)
+
+        t0 = datetimeify('2020-01-01')
+        xts = [t0.replace(month=i) for i in range(1, tf.month+1)]
+        lxts = [xt.strftime('%d %b') for xt in xts]
+        ax1.set_xticks(xts)
+        ax1.set_xticklabels(lxts)
+        ax1.text(0.025, 0.95, t0.strftime('%Y'), size = 12, ha = 'left',
             va = 'top', transform=ax1.transAxes)
 
         plt.savefig(save, dpi=400)
@@ -1721,8 +1973,37 @@ def get_classifier(classifier):
     
     return model, grid
 
+def outlierDetection(data, outlier_degree=0.5):
+    """ Determines whether a given data interval requires earthquake filtering
+
+    Parameters:
+    -----------
+    data : list
+        10 minute interval of a processed datastream (rsam, mf, hf, mfd, hfd).
+    outlier_degree : float
+        exponent (base 10) which determines the Z-score required to be considered an outlier.
+    
+    Returns:
+    --------
+    outlier : boolean
+        Is the maximum of the data considered an outlier?
+    maxIdx : int
+        Index of the maximum of the data
+    """
+    mean = np.mean(data)
+    std = np.std(data)
+    maxIdx = np.argmax(data)
+    # compute Z-score
+    Zscr = (data[maxIdx]-mean)/std
+    # Determine if an outlier
+    if Zscr > 10**outlier_degree:
+        outlier = True
+    else:
+        outlier = False
+    return outlier, maxIdx
+
 def get_data_for_day(i,t0,station):
-    """ Download WIZ data for given 24 hour period, writing data to temporary file.
+    """ Download and process WIZ data for given 24 hour period, writing data to temporary file.
 
         Parameters:
         -----------
@@ -1730,6 +2011,8 @@ def get_data_for_day(i,t0,station):
             Number of days that 24 hour download period is offset from initial date.
         t0 : datetime.datetime
             Initial date of data download period.
+        station : string
+            Name of the seismic station the data is to be downloaded from.
         
     """
     t0 = UTCDateTime(t0)
@@ -1768,31 +2051,64 @@ def get_data_for_day(i,t0,station):
         # round start time to nearest 10 min increment
     tiday = UTCDateTime("{:d}-{:02d}-{:02d} 00:00:00".format(ti.year, ti.month, ti.day))
     ti = tiday+int(np.round((ti-tiday)/600))*600
-    N = 600*100                             # 10 minute windows in seconds
-    Nm = int(N*np.floor(len(data)/N))
-    for data_stream, name in zip(data_streams, names):
-        filtered_data = bandpass(data, data_stream[0], data_stream[1], 100)
-        filtered_data = abs(filtered_data[:Nm])
-        datas.append(filtered_data.reshape(-1,N).mean(axis=-1)*1.e9)
-
-    # compute dsar
+    N = 600*100 # no. data points in 10 minutes
+    m = len(data)//N # no. 10 minute domains in data
+    Nm = N*m # no. data points within all 10 minute domains
+    data = data[:Nm] # Remove excess data points
+    numSubDomains = 4 # No. subdomains within each 10 minute domain
+    f = 0.1 # Asymmetry factor
+    subDomainRange = N//numSubDomains # No. data points per subDomain
+    _data = [] # Intialise list of unfiltered data streams
+    for data_stream, name in zip(data_streams, names): # For each data stream
+        filtered_data = bandpass(data, data_stream[0], data_stream[1], 100) # Frequnecy filter
+        filtered_data = abs(filtered_data)*1.e9 # Compute signal magnitude and scale
+        _data.append(filtered_data[:Nm]) # Add unfiltered data stream to list
+    # Compute data streams required for dsar computation
     data = cumtrapz(data, dx=1./100, initial=0)
     data -= np.mean(data)
     j = names.index('mf')
     mfd = bandpass(data, data_streams[j][0], data_streams[j][1], 100)
     mfd = abs(mfd[:Nm])
-    mfd = mfd.reshape(-1,N).mean(axis=-1)
+    _data.append(mfd)
+    names.append('mfd')
     j = names.index('hf')
     hfd = bandpass(data, data_streams[j][0], data_streams[j][1], 100)
     hfd = abs(hfd[:Nm])
-    hfd = hfd.reshape(-1,N).mean(axis=-1)
-    dsar = mfd/hfd
-    datas.append(dsar)
-    names.append('dsar')
-
+    _data.append(hfd)
+    names.append('hfd')
+    
+    # Filter out earthquakes
+    datas = [] # intialise list to store filtered data streams
+    for j,stream in enumerate(_data): # For each data stream
+        filtered_data = [] # Intialise list to store filtered data stream
+        for k in range(m): # For each 10 minute window in day
+            domain = stream[k*N:(k+1)*N] # Get data for current 10 minute window
+            outlier, maxIdx = outlierDetection(domain)
+            if outlier: # If data needs filtering
+                startIdx = int(maxIdx-np.floor(f*subDomainRange)) # Compute the index of the domain where the subdomain centered on the peak begins
+                endIdx = startIdx+subDomainRange # Find the end index of the subdomain
+                if endIdx >= N: # If end index exceeds data range
+                    Idx = list(range(endIdx-N)) # Wrap domain so continues from beginning of data range
+                    end = list(range(startIdx, N))
+                    Idx.extend(end)
+                elif startIdx < 0: # If starting index exceeds data range
+                    Idx = list(range(endIdx))
+                    end = list(range(N+startIdx, N)) # Wrap domains so continues at end of data range
+                    Idx.extend(end)
+                else:
+                    Idx = list(range(startIdx, endIdx))
+                domain = np.delete(domain, Idx) # remove the subDomain with the largest peak
+            filtered_data.append(np.mean(domain)) # Compute the average from the remaining sub domains and add it to list 
+        filtered_data = np.array(filtered_data) # Turn list into numpy array
+        if j == 4: # If just filtered the hfd data stream
+            datas[3] /= filtered_data # Convert mfd data stream into dsar
+        else:
+            datas.append(filtered_data) # Add filtered data to list
+    
     # write out temporary file
+    names = ['rsam','mf','hf','dsar']
     datas = np.array(datas)
-    time = [(ti+j*600).datetime for j in range(datas.shape[1])]
+    time = [(ti+(j+1)*600).datetime for j in range(datas.shape[1])]
     df = pd.DataFrame(zip(*datas), columns=names, index=pd.Series(time))
     save_dataframe(df, '_tmp/_tmp_fl_{:05d}.csv'.format(i), index=True, index_label='time')
 
@@ -1830,6 +2146,7 @@ def train_one_model(fM, ys, Nfts, modeldir, classifier, retrain, random_seed, ra
         return
     
     # train and save classifier
+    np.random.seed(random_seed)
     model_cv = GridSearchCV(model, grid, cv=ss, scoring="balanced_accuracy",error_score=np.nan)
     model_cv.fit(fMt,yst)
     _ = joblib.dump(model_cv.best_estimator_, fl, compress=3)
@@ -1898,3 +2215,31 @@ def to_nztimezone(t):
     utctz = tz.gettz('UTC')
     nztz = tz.gettz('Pacific/Auckland')
     return [ti.replace(tzinfo=utctz).astimezone(nztz) for ti in pd.to_datetime(t)]
+
+
+def sigmoid(consensus, sig_params):
+    ''' Return the calibrated probability by applying the sigmoid function to the model consensus.
+
+        Parameters:
+        -----------
+        consensus : column of pd.DataFrame
+            The model consensus
+        sig_params : None or dict/list/tuple
+            Sigmoid parameters - {'a': a, 'b':b} or (a,b) or [a,b]
+
+        Returns:
+        --------
+        sigmoid : column of pd.DataFrame
+            Probabilities after applying sigmoid parameters to modeel consensus.
+
+        Notes:
+        ------
+        Helper function to apply a,b to set of predictions (see pd.DataFrame.apply())
+    '''
+    if isinstance(sig_params, dict):
+        a = sig_params['a']
+        b = sig_params['b']
+    elif isinstance(sig_params, (list,tuple)):
+        a = sig_params[0]
+        b = sig_params[1]
+    return expit(-(a * consensus + b))
