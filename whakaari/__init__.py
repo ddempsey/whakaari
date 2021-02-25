@@ -1229,7 +1229,7 @@ class ForecastModel(object):
 
         return forecast
     def hires_forecast(self, ti, tf, recalculate=True, save=None, root=None, nztimezone=False, 
-        n_jobs=None, threshold=0.888, alt_rsam=None, xlim=None, sig_params=None):
+        n_jobs=None, threshold=0.888, alt_rsam=None, xlim=None, sig_params=None, stack=True):
         """ Construct forecast at resolution of data.
 
             Parameters:
@@ -1251,6 +1251,8 @@ class ForecastModel(object):
                 CPUs to use when forecasting in parallel.
             sig_params : None or dict/list/tuple
                 If given, apply sigmoid parameters to predictions. These are calculated using calibration script
+            stack : bool
+                Flag to stack calibrated probabilities on top of forecast
             Notes:
             ------
             Requires model to have already been trained.
@@ -1282,7 +1284,7 @@ class ForecastModel(object):
             if sig_params is not None: # Assume user wants both hires forecasts as model output and probability
                 save=save.split('.png')[0]
                 c_save = f'{save}_calibrated.png'
-                self._plot_hires_forecast_calibrated(ys, c_save, sigmoid(threshold,sig_params), nztimezone=nztimezone, alt_rsam=alt_rsam, xlim=xlim)
+                self._plot_hires_forecast_calibrated(ys, c_save, sigmoid(threshold,sig_params), nztimezone=nztimezone, alt_rsam=alt_rsam, xlim=xlim, stack=stack)
 
         return ys
     # plotting methods
@@ -1560,7 +1562,7 @@ class ForecastModel(object):
 
         plt.savefig(save, dpi=400)
         plt.close(f)
-    def _plot_hires_forecast_calibrated(self, ys, save, threshold=0.025, nztimezone=False, alt_rsam=None, xlim=None):
+    def _plot_hires_forecast_calibrated(self, ys, save, threshold=0.025, nztimezone=False, alt_rsam=None, xlim=None, stack=True):
         """ Probability version of Plot model hires version of model forecast (single axes).
 
             Parameters:
@@ -1599,20 +1601,23 @@ class ForecastModel(object):
         ax1.set_xlim([t[0], tmax])
         ax1.set_title('Whakaari Eruption Forecast Probabilities')
         for ax in [ax1,ax2]:
+            # Plot probability
             ax.set_ylim([-0.005, 0.06]) # ylimit for probabilities
             ax.set_yticks([0, 0.02, 0.04, 0.06])
             ax.yaxis.set_major_formatter(mtick.PercentFormatter(xmax=1)) # Formatting ticks as percentages
             ax.set_ylabel('probability')
 
-            # consensus threshold
-            ax.axhline(threshold, color='k', linestyle=':', label='alert threshold', zorder=4)
+            # probability threshold
+            ax.axhline(threshold, color='goldenrod', linestyle=':', label='probability threshold', zorder=4)
 
             # modelled alert
-            ax.plot(t, p, 'c-', label='probability', zorder=4, lw=0.75)
+            ax.plot(t, p, color='darkgoldenrod', linestyle='-', label='probability', zorder=4, lw=0.75)
             y = np.mean(np.array([ys[col] for col in ys.columns if 'probability' not in col]), axis=0)
             # convert regular model consensus confidence interval to probability space
             ci = self.compute_CI(y)
-            ax.fill_between(t, sigmoid(y-ci, self.sig_params), sigmoid(y+ci, self.sig_params), color='c', zorder=5, alpha=0.3)
+            ax.fill_between(t, sigmoid(y-ci, self.sig_params), sigmoid(y+ci, self.sig_params), color='darkgoldenrod', zorder=5, alpha=0.3)
+
+            # Plot RSAM
             ax_ = ax.twinx()
             ax_.set_ylabel('RSAM [$\mu$m s$^{-1}$]')
             ax_.set_ylim([0,5])
@@ -1621,6 +1626,29 @@ class ForecastModel(object):
                 ax_.plot(alt_trsam, alt_rsam.values*1.e-3, '-', color=[0.5,0.5,0.5], lw=0.75)
             ax_.plot(trsam, rsam.values*1.e-3, 'k-', lw=0.75)
 
+            # Plot consensus
+            if stack:
+                ax_2 = ax.twinx()
+                ax_2.spines["right"].set_position(("axes", 0.02))
+                ax_2.set_frame_on(True)
+                ax_2.patch.set_visible(False)
+                for sp in ax_2.spines.values():
+                    sp.set_visible(False)
+                ax_2.spines["right"].set_visible(True)
+                ax_2.set_xlim(ax.get_xlim())
+                ax_2.set_ylim([-0.05, 1.05])
+                ax_2.set_yticks([0,0.25,0.50,0.75,1.00])
+                ax_2.set_ylabel('ensemble mean')
+                # consensus threshold
+                ax_2.axhline(0.888, color='c', label='alert threshold', linestyle=':', zorder=4)
+                ax.axhline(0, xmin=1,xmax=1, color='c', label='alert threshold', linestyle=':', zorder=4)
+                # modelled alert
+                ax_2.plot(t, y, 'c-', zorder=4, lw=0.75)
+                ci = self.compute_CI(y)
+                ax_2.fill_between(t, (y-ci), (y+ci), color='c', zorder=5, alpha=0.3)
+                ax.plot([],[],'c-', lw=0.75, label='ensemble mean')
+                ax.yaxis.label.set_color('goldenrod')
+                ax_2.yaxis.label.set_color('c')
             for tii,pi in zip(t, p):
                 if pi > threshold:
                     ax.fill_between([tii, tii+self.dtf], [0,0], [100,100], color='y', zorder=3)
