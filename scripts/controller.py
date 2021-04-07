@@ -323,24 +323,24 @@ def update_forecast():
     try:
         # model from 2011 to present day (td.tf)
         data_streams = ['rsam','mf','hf','dsar']
-        fm = ForecastModel(ti='2011-01-01', tf=td.tf, window=2, overlap=0.75, station='WIZ', 
-            look_forward=2, data_streams=data_streams, root='online_forecaster_WIZ',savefile_type='pkl')
-        fm0 = ForecastModel(ti='2013-05-01', tf=td0.tf, window=2, overlap=0.75, station='FWVZ',
-            look_forward=2, data_streams=data_streams, root='online_forecaster_WSRZ',savefile_type='pkl')
-        fm1 = ForecastModel(ti='2006-09-28', tf='2006-10-08', window=2, overlap=0.75, station='FWVZ',
-            look_forward=2, data_streams=data_streams, root='WSRZ_2006_eruption',savefile_type='pkl')
-        for column in fm0.data.df.columns:
-            if column == 'dsar':continue
-            dt0,dt = np.log10(fm0.data.df[column]).replace([np.inf, -np.inf], np.nan).dropna(),np.log10(fm.data.df[column]).replace([np.inf, -np.inf], np.nan).dropna()
-            mn0,mn = np.mean(dt0), np.mean(dt)
-            std0,std = np.std(dt0), np.std(dt)
-            fm0.data.df[column] = 10**((np.log10(fm0.data.df[column])-mn0)/std0*std+mn)
-            fm0.data.df[column] = fm0.data.df[column].fillna(0)
-            fm1.data.df[column] = 10**((np.log10(fm1.data.df[column])-mn0)/std0*std+mn)
-            fm1.data.df[column] = fm1.data.df[column].fillna(0)
+        # fm = ForecastModel(ti='2011-01-01', tf=td.tf, window=2, overlap=0.75, station='WIZ', 
+        #     look_forward=2, data_streams=data_streams, root='online_forecaster_WIZ',savefile_type='pkl')
+        # fm0 = ForecastModel(ti='2013-05-01', tf=td0.tf, window=2, overlap=0.75, station='FWVZ',
+        #     look_forward=2, data_streams=data_streams, root='online_forecaster_WSRZ',savefile_type='pkl')
+        # fm1 = ForecastModel(ti='2006-09-28', tf='2006-10-08', window=2, overlap=0.75, station='FWVZ',
+        #     look_forward=2, data_streams=data_streams, root='WSRZ_2006_eruption',savefile_type='pkl')
+        # for column in fm0.data.df.columns:
+        #     if column == 'dsar':continue
+        #     dt0,dt = np.log10(fm0.data.df[column]).replace([np.inf, -np.inf], np.nan).dropna(),np.log10(fm.data.df[column]).replace([np.inf, -np.inf], np.nan).dropna()
+        #     mn0,mn = np.mean(dt0), np.mean(dt)
+        #     std0,std = np.std(dt0), np.std(dt)
+        #     fm0.data.df[column] = 10**((np.log10(fm0.data.df[column])-mn0)/std0*std+mn)
+        #     fm0.data.df[column] = fm0.data.df[column].fillna(0)
+        #     fm1.data.df[column] = 10**((np.log10(fm1.data.df[column])-mn0)/std0*std+mn)
+        #     fm1.data.df[column] = fm1.data.df[column].fillna(0)
         fm2 = ForecastModel(ti='2011-01-01', tf=td.tf, window=2, overlap=0.75, station='WIZ',
             look_forward=5, data_streams=data_streams, root='online_forecaster_FWVZ',savefile_type='pkl',
-            mixed = [mn0,mn,std0,std])
+            mixed = True)
         # The online forecaster is trained using all eruptions in the dataset. It only
         # needs to be trained once, or again after a new eruption.
         # (Hint: feature matrices can be copied from other models to avoid long recalculations
@@ -354,7 +354,7 @@ def update_forecast():
         fm1.train(ti=datetimeify('2006-09-28'), tf=datetimeify('2006-10-08'), drop_features=drop_features, Ncl=500,
             retrain=False, n_jobs=1)      
         fm2.train(ti='2011-01-01', tf='2020-01-01', drop_features=drop_features, Ncl=20,
-                retrain=False, n_jobs=1)      
+                retrain=True, n_jobs=1)      
         
         # forecast from beginning of training period at high resolution
         tf = datetime.utcnow()
@@ -681,6 +681,8 @@ def get_emails(from_file, prev=None):
             raise e
 
 if __name__ == "__main__":  
+    update_forecast()
+    asdf
   # set parameters
     keyfile = r'/home/rccuser/twitter_keys.txt'
     mail_from = 'noreply.whakaariforecaster@gmail.com'

@@ -453,8 +453,8 @@ class ForecastModel(object):
             self.fm2 = ForecastModel(window, overlap, look_forward, 'FWVZ', savefile_type='pkl')
             for column in self.fm2.data.df.columns:
                 #if column == 'dsar':continue
-                dt0 = np.log10(self.data.df[column]).replace([np.inf, -np.inf], np.nan).dropna()
-                dt = np.log10(self.fm2.data.df[column]).replace([np.inf, -np.inf], np.nan).dropna()
+                dt = np.log10(self.data.df[column]).replace([np.inf, -np.inf], np.nan).dropna()
+                dt0 = np.log10(self.fm2.data.df[column]).replace([np.inf, -np.inf], np.nan).dropna()
                 mn0,mn = np.mean(dt0), np.mean(dt)
                 std0,std = np.std(dt0), np.std(dt)
                                                     
@@ -1854,6 +1854,7 @@ def train_one_model(fM, ys, Nfts, modeldir, classifier, retrain, random_seed, ra
         return
     
     # train and save classifier
+    np.random.seed(random_seed)
     model_cv = GridSearchCV(model, grid, cv=ss, scoring="balanced_accuracy",error_score=np.nan)
     model_cv.fit(fMt,yst)
     _ = joblib.dump(model_cv.best_estimator_, fl, compress=3)
