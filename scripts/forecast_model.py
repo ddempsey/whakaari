@@ -1,6 +1,6 @@
 import os, sys
 sys.path.insert(0, os.path.abspath('..'))
-from whakaari import TremorData, ForecastModel, load_dataframe
+from whakaari import TremorData, ForecastModel, load_dataframe, datetimeify
 from datetime import timedelta, datetime
 
 # tsfresh and sklearn dump a lot of warnings - these are switched off below, but should be
@@ -120,8 +120,70 @@ def forecast_now():
     fm.hires_forecast(ti=fm.data.tf - 7*day, tf=fm.data.tf, recalculate=True, 
         save='current_forecast.png', nztimezone=True, n_jobs=n_jobs)  
 
+def forecast_scratch():
+    ''' test scale forecast model
+    '''
+    # constants
+    month = timedelta(days=365.25/12)
+        
+    # set up model
+    ti = '2011-01-01'
+    tf = '2021-01-01'
+    data_streams = ['rsam','mf','hf','dsar','rsamF','mfF','hfF','dsarF']
+    fm = ForecastModel(ti=ti, tf=tf, window=2., overlap=0.75, 
+        look_forward=2., data_streams=data_streams, root='test', savefile_type='pkl')
+    
+    # set the available CPUs higher or lower as appropriate
+    n_jobs = 3
+    
+    # train the model
+    drop_features = ['linear_trend_timewise','agg_linear_trend']
+    fm.train(ti=ti, tf=tf, drop_features=drop_features, retrain=False, n_jobs=n_jobs)      
+    return
+
+    # plot a forecast for a future eruption
+    # tf = te+month/30
+    # fm.hires_forecast(ti=te-fm.dtw-fm.dtf, tf=tf, recalculate=True, 
+    #     save=r'{:s}/forecast_Aug2013.png'.format(fm.plotdir), n_jobs=n_jobs)
+
+    te = fm.data.tes[1]
+    y = load_dataframe(r'D:\code\whakaari\predictions\test_hires\DecisionTreeClassifier_0000.pkl')
+    tf = y.index[-1] + month/30./10.
+    fm.hires_forecast(ti=te-fm.dtw-fm.dtf, tf=tf, recalculate=False, 
+        save=r'{:s}/forecast_Aug2013.png'.format(fm.plotdir), n_jobs=n_jobs)
+
+def forecast_parallel(ds):
+    # constants
+    month = timedelta(days=365.25/12)
+        
+    # set up model
+    ti = datetimeify('2011-01-01')
+    tf = datetimeify('2021-01-01')
+    fm = ForecastModel(ti=ti, tf=tf, window=2., overlap=0.75, 
+        look_forward=2., data_streams=[ds], root='test', savefile_type='pkl')
+    
+    # set the available CPUs higher or lower as appropriate
+    fm.n_jobs = 0
+    fm._load_data(ti,tf)
+
+def forecast_all():
+    data_streams = ['rsam','mf','hf','dsar','rsamF','mfF','hfF','dsarF']
+    data_streams = ['zsc_'+ds for ds in data_streams]
+    from multiprocessing import Pool
+    p = Pool(8)
+    p.map(forecast_parallel, data_streams)
+    p.close()
+    p.join()
+
+def download_tremor():
+    td = TremorData(station='WIZ')
+    td.update(n_jobs=16)
+
 if __name__ == "__main__":
-    #forecast_dec2019()
-    forecast_test()
-    #forecast_now()
+    # forecast_dec2019()
+    # forecast_test()
+    # forecast_now()
+    # forecast_scratch()
+    # download_tremor()
+    forecast_all()
     

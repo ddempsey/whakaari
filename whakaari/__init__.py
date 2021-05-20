@@ -56,7 +56,6 @@ from sklearn.naive_bayes import GaussianNB
 from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
 
-datas = ['rsam','mf','hf','dsar']
 all_classifiers = ["SVM","KNN",'DT','RF','NN','NB','LR']
 _MONTH = timedelta(days=365.25/12)
 _DAY = timedelta(days=1.)
@@ -84,8 +83,10 @@ class TremorData(object):
         plot
             Plot tremor data.
     """
-    def __init__(self, station='WIZ'):
+    def __init__(self, station='WIZ', parent=None):
         self.station = station
+        self.n_jobs = 6
+        self.parent = parent
         self.file = os.sep.join(getfile(currentframe()).split(os.sep)[:-2]+['data','{:s}_tremor_data.csv'.format(station)])
         self._assess()
     def __repr__(self):
@@ -104,14 +105,28 @@ class TremorData(object):
         # check if data file exists
         self.exists = os.path.isfile(self.file)
         if not self.exists:
-            t0 = datetime(2011,1,1)
-            t1 = datetime(2011,1,2)
+            if self.station == 'WIZ':
+                t0 = datetime(2011,1,1)
+                t1 = datetime(2011,1,2)
+            elif self.station == 'WSRZ':
+                t0 = datetime(2013,5,1)
+                t1 = datetime(2013,5,2)
+            elif self.station in ['FWVZ','KRVZ']:
+                t0 = datetime(2006,1,1)
+                t1 = datetime(2006,1,2)
+            else:
+                raise ValueError("No file for {:s} - when should I start downloading?".format(self.station))
             self.update(t0,t1)
         # check date of latest data in file
         self.df = load_dataframe(self.file, index_col=0, parse_dates=[0,], infer_datetime_format=True)
         # self.df = pd.read_csv(self.file, index_col=0, parse_dates=[0,], infer_datetime_format=True)
         self.ti = self.df.index[0]
         self.tf = self.df.index[-1]
+    def _check_transform(self, name):
+        if name not in self.df.columns and name in self.parent.data_streams:
+            return True
+        else: 
+            return False
     def _compute_transforms(self):
         """ Compute data transforms.
 
@@ -125,22 +140,43 @@ class TremorData(object):
         for col in self.df.columns:
             if col is 'time': continue
             # inverse
-            if 'inv_'+col not in self.df.columns:
+            if self._check_transform('inv_'+col):
                 self.df['inv_'+col] = 1./self.df[col]
             # diff
-            if 'diff_'+col not in self.df.columns:
+            if self._check_transform('diff_'+col):
                 self.df['diff_'+col] = self.df[col].diff()
                 self.df['diff_'+col][0] = 0.
             # log
-            if 'log_'+col not in self.df.columns:
+            if self._check_transform('log_'+col):
                 self.df['log_'+col] = np.log10(self.df[col])
             # stft
-            if 'stft_'+col not in self.df.columns:
+            if self._check_transform('stft_'+col):
                 seg,freq = [12,16]
                 data = pd.Series(np.zeros(seg*6-1))
                 data = data.append(self.df[col], ignore_index=True)
                 Z = abs(stft(data.values, window='nuttall', nperseg=seg*6, noverlap=seg*6-1, boundary=None)[2])
                 self.df['stft_'+col] = np.mean(Z[freq:freq+2,:],axis=0)
+            if self._check_transform('zsc_'+col):
+                # log data
+                dt = np.log10(self.df[col]).replace([np.inf, -np.inf], np.nan).dropna()
+                
+                # Drop test data
+                if len(self.parent.exclude_dates) != 0:
+                    for exclude_date_range in self.parent.exclude_dates:
+                        t0,t1 = [datetimeify(date) for date in exclude_date_range]
+                        inds = (dt.index<t0)|(dt.index>=t1)
+                        dt = dt.loc[inds]
+
+                # Record mean/std/min
+                mn = np.mean(dt)
+                std = np.std(dt)
+                minzsc = np.min(dt)                                                    
+
+                # Calculate percentile
+                self.df['zsc_'+col]=(np.log10(self.df[col])-mn)/std
+                # self.df['zsc_'+col]=(self.df[col]-mn)/std
+                self.df['zsc_'+col] = self.df['zsc_'+col].fillna(minzsc)
+                self.df['zsc_'+col]=10**self.df['zsc_'+col]
     def _is_eruption_in(self, days, from_time):
         """ Binary classification of eruption imminence.
 
@@ -161,7 +197,7 @@ class TremorData(object):
             if 0 < (te-from_time).total_seconds()/(3600*24) < days:
                 return 1.
         return 0.
-    def update(self, ti=None, tf=None):
+    def update(self, ti=None, tf=None, n_jobs = None):
         """ Obtain latest GeoNet data.
 
             Parameters:
@@ -187,25 +223,25 @@ class TremorData(object):
 
         # parallel data collection - creates temporary files in ./_tmp
         pars = [[i,ti,self.station] for i in range(ndays)]
-        p = Pool(6)
+        n_jobs = self.n_jobs if n_jobs is None else n_jobs
+        p = Pool(n_jobs)
         p.starmap(get_data_for_day, pars)
         p.close()
         p.join()
 
         # special case of no file to update - create new file
         if not self.exists:
-            shutil.copyfile('_tmp/_tmp_fl_00000.dat',self.file)
+            shutil.copyfile('_tmp/_tmp_fl_00000.csv',self.file)
             self.exists = True
             shutil.rmtree('_tmp')
             return
 
         # read temporary files in as dataframes for concatenation with existing data
-        dfs = [self.df[datas]]
+        dfs = [self.df[['dsar','dsarF','hf','hfF','mf','mfF','rsam','rsamF']]]
         for i in range(ndays):
             fl = '_tmp/_tmp_fl_{:05d}.csv'.format(i)
             if not os.path.isfile(fl): 
                 continue
-            # dfs.append(pd.read_csv(fl, index_col=0, parse_dates=[0,], infer_datetime_format=True))
             dfs.append(load_dataframe(fl, index_col=0, parse_dates=[0,], infer_datetime_format=True))
         shutil.rmtree('_tmp')
         self.df = pd.concat(dfs)
@@ -441,13 +477,16 @@ class ForecastModel(object):
         plot_feature_correlation
             Corner plot of feature correlation.
     """
-    def __init__(self, window, overlap, look_forward, station='WIZ', ti=None, tf=None, data_streams=['rsam','mf','hf','dsar'], root=None, savefile_type='csv'):
+    def __init__(self, window, overlap, look_forward, exclude_dates=[], station='WIZ', ti=None, tf=None, 
+        data_streams=['rsam','mf','hf','dsar'], root=None, savefile_type='pkl', feature_root=None, 
+        feature_dir=None):
         self.window = window
         self.overlap = overlap
         self.station = station
+        self.exclude_dates = exclude_dates
         self.look_forward = look_forward
         self.data_streams = data_streams
-        self.data = TremorData(self.station)
+        self.data = TremorData(self.station, parent=self)
         if any(['_' in ds for ds in data_streams]):
             self.data._compute_transforms()
         if any([d not in self.data.df.columns for d in self.data_streams]):
@@ -491,11 +530,15 @@ class ForecastModel(object):
             self.root += '_'+((('{:s}-')*len(self.data_streams))[:-1]).format(*sorted(self.data_streams))
         else:
             self.root = root
-        self.rootdir = os.sep.join(getfile(currentframe()).split(os.sep)[:-2])
+        self.feature_root=feature_root
+        self.rootdir = '/'.join(getfile(currentframe()).split(os.sep)[:-2])
         self.plotdir = r'{:s}/plots/{:s}'.format(self.rootdir, self.root)
         self.modeldir = r'{:s}/models/{:s}'.format(self.rootdir, self.root)
-        self.featdir = r'{:s}/features'.format(self.rootdir, self.root)
-        self.featfile = r'{:s}/{:s}_features.{:s}'.format(self.featdir, self.root, self.savefile_type)
+        if feature_dir is None:
+            self.featdir = r'{:s}/features'.format(self.rootdir)
+        else:
+            self.featdir = feature_dir
+        self.featfile = lambda ds: (r'{:s}/{:3.2f}w_{:3.2f}o_{:s}'.format(self.featdir,self.window, self.overlap, self.station)+'_{:s}.'+self.savefile_type).format(ds)
         self.preddir = r'{:s}/predictions/{:s}'.format(self.rootdir, self.root)
     # private helper methods
     def _detect_model(self):
@@ -517,7 +560,7 @@ class ForecastModel(object):
                 self.classifier = classifier
                 return
         raise ValueError("did not recognise models in '{:s}'".format(self._use_model))
-    def _construct_windows(self, Nw, ti, i0=0, i1=None):
+    def _construct_windows(self, Nw, ti, ds, i0=0, i1=None):
         """ Create overlapping data windows for feature extraction.
 
             Parameters:
@@ -542,7 +585,7 @@ class ForecastModel(object):
             i1 = Nw
 
         # get data for windowing period
-        df = self.data.get_data(ti-self.dtw, ti+(Nw-1)*self.dto)[self.data_streams]
+        df = self.data.get_data(ti-self.dtw, ti+(Nw-1)*self.dto)[[ds,]]
 
         # create windows
         dfs = []
@@ -556,7 +599,7 @@ class ForecastModel(object):
         df = pd.concat(dfs)
         window_dates = [ti + i*self.dto for i in range(Nw)]
         return df, window_dates[i0:i1]
-    def _extract_features(self, ti, tf):
+    def _extract_features(self, ti, tf, ds, yr=None):
         """ Extract features from windowed data.
 
             Parameters:
@@ -577,7 +620,40 @@ class ForecastModel(object):
             ------
             Saves feature matrix to $rootdir/features/$root_features.csv to avoid recalculation.
         """
+
         makedir(self.featdir)
+
+        # check special case of large (hires) order
+        if yr is None and (self.io+1 == self.iw):            
+            # divide training period into years
+            for yr in list(range(ti.year, tf.year+1)):                
+                # set up monthly iteration
+                    # start of current year, min start of data plus window length
+                yr0 = np.max([datetime(*[yr, 1, 1, 0, 0, 0]) ,self.data.ti+self.dtw])
+                    # start of next year
+                yr1 = datetime(*[yr+1, 1, 1, 0, 0, 0])-self.dt
+                tiy = np.max([yr0, ti])                     # start of feature matrix
+                t1s = [datetime(*[yr, i, 1, 0, 0, 0]) for i in range(2,13)] + [yr1]                
+                
+                # check if FM already exists
+                ftfl = self._ftfl(ds,yr)
+                if os.path.isfile(ftfl):
+                    t = pd.to_datetime(load_dataframe(ftfl, index_col=0, parse_dates=['time'], usecols=['time'], infer_datetime_format=True).index.values)
+                    ti0,tf0 = t[0],t[-1]
+                    if yr0 == ti0 and (yr1 == tf0 or tf == tf0):
+                        continue
+
+                # monthly feature extraction jobs
+                for t1 in t1s:
+                    if t1 < tiy: 
+                        continue
+                    elif t1 > tf:
+                        t1 = tf
+                    self._extract_features(tiy,t1,ds,yr)
+                    if t1 == tf:
+                        break
+                gc.collect()
+            return
 
         # number of windows in feature request
         Nw = int(np.floor(((tf-ti)/self.dt)/(self.iw-self.io)))+1
@@ -590,14 +666,17 @@ class ForecastModel(object):
             # drop features if relevant
             _ = [cfp.pop(df) for df in self.drop_features if df in list(cfp.keys())]
 
+        # file naming convention
+        ftfl = self._ftfl(ds,yr)
+        kw = {'column_id':'id', 'n_jobs':np.min([self.n_jobs,3]), 
+            'default_fc_parameters':cfp, 'impute_function':impute}
+        
         # check if feature matrix already exists and what it contains
-        if os.path.isfile(self.featfile):
-            # t = pd.to_datetime(pd.read_csv(self.featfile, index_col=0, parse_dates=['time'], usecols=['time'], infer_datetime_format=True).index.values)
-            t = pd.to_datetime(load_dataframe(self.featfile, index_col=0, parse_dates=['time'], usecols=['time'], infer_datetime_format=True).index.values)
+        if os.path.isfile(ftfl):
+            t = pd.to_datetime(load_dataframe(ftfl, index_col=0, parse_dates=['time'], usecols=['time'], infer_datetime_format=True).index.values)
             ti0,tf0 = t[0],t[-1]
             Nw0 = len(t)
-            # hds = pd.read_csv(self.featfile, index_col=0, nrows=1)
-            hds = load_dataframe(self.featfile, index_col=0, nrows=1)
+            hds = load_dataframe(ftfl, index_col=0, nrows=1)
             hds = list(set([hd.split('__')[1] for hd in hds]))
 
             # option 1, expand rows
@@ -616,14 +695,15 @@ class ForecastModel(object):
 
             # option 3, expand both
             if any([more_cols, pad_left > 0, pad_right > 0]) and self.update_feature_matrix:
-                # fm = pd.read_csv(self.featfile, index_col=0, parse_dates=['time'], infer_datetime_format=True)
-                fm = load_dataframe(self.featfile, index_col=0, parse_dates=['time'], infer_datetime_format=True)
+                fm = load_dataframe(ftfl, index_col=0, parse_dates=['time'], infer_datetime_format=True)
                 if more_cols:
                     # expand columns now
-                    df0, wd = self._construct_windows(Nw0, ti0)
+                    df0, wd = self._construct_windows(Nw0, ti0, ds)
                     cfp0 = ComprehensiveFCParameters()
                     cfp0 = dict([(k, cfp0[k]) for k in cfp0.keys() if k in new_cols])
-                    fm2 = extract_features(df0, column_id='id', n_jobs=self.n_jobs, default_fc_parameters=cfp0, impute_function=impute)
+                    kw0=copy(kw)
+                    kw0['default_fc_parameters']=cfp0
+                    fm2 = self._extract_featuresX(df0, **kw0)
                     fm2.index = pd.Series(wd)
                     fm2.index.name = 'time'
                     
@@ -632,39 +712,48 @@ class ForecastModel(object):
                 # check if updates required because training period expanded
                     # expanded earlier
                 if pad_left > 0:
-                    df, wd = self._construct_windows(Nw, ti, i1=pad_left)
-                    fm2 = extract_features(df, column_id='id', n_jobs=self.n_jobs, default_fc_parameters=cfp, impute_function=impute)
+                    df, wd = self._construct_windows(Nw, ti, ds, i1=pad_left)
+                    fm2 = self._extract_featuresX(df, **kw)
                     fm2.index = pd.Series(wd)
                     fm2.index.name = 'time'
                     fm = pd.concat([fm2,fm], sort=False)
                     # expanded later
                 if pad_right > 0:
-                    df, wd = self._construct_windows(Nw, ti, i0=Nw - pad_right)
-                    fm2 = extract_features(df, column_id='id', n_jobs=self.n_jobs, default_fc_parameters=cfp, impute_function=impute)
+                    df, wd = self._construct_windows(Nw, ti, ds, i0=Nw - pad_right)
+                    fm2 = self._extract_featuresX(df, **kw)
                     fm2.index = pd.Series(wd)
                     fm2.index.name = 'time'
                     fm = pd.concat([fm,fm2], sort=False)
                 
                 # write updated file output
-                # fm.to_csv(self.featfile, index=True, index_label='time')
-                save_dataframe(fm, self.featfile, index=True, index_label='time')
+                save_dataframe(fm, ftfl, index=True, index_label='time')
                 # trim output
                 fm = fm.iloc[i0:i1]    
             else:
                 # read relevant part of matrix
-                # fm = pd.read_csv(self.featfile, index_col=0, parse_dates=['time'], infer_datetime_format=True, header=0, skiprows=range(1,i0+1), nrows=i1-i0)
-                fm = load_dataframe(self.featfile, index_col=0, parse_dates=['time'], infer_datetime_format=True, header=0, skiprows=range(1,i0+1), nrows=i1-i0)
+                fm = load_dataframe(ftfl, index_col=0, parse_dates=['time'], infer_datetime_format=True, header=0, skiprows=range(1,i0+1), nrows=i1-i0)
         else:
             # create feature matrix from scratch   
-            df, wd = self._construct_windows(Nw, ti)
-            fm = extract_features(df, column_id='id', n_jobs=self.n_jobs, default_fc_parameters=cfp, impute_function=impute)
+            df, wd = self._construct_windows(Nw, ti, ds)
+            fm = self._extract_featuresX(df, **kw)
             fm.index = pd.Series(wd)
             fm.index.name = 'time'
-            # fm.to_csv(self.featfile, index=True, index_label='time')
-            save_dataframe(fm, self.featfile, index=True, index_label='time')
+            save_dataframe(fm, ftfl, index=True, index_label='time')
             
         ys = pd.DataFrame(self._get_label(fm.index.values), columns=['label'], index=fm.index)
         return fm, ys
+    def _extract_featuresX(self, df, **kw):
+        t0 = df.index[0]+self.dtw
+        t1 = df.index[-1]+self.dt
+        print('{:s} feature extraction {:s} to {:s}'.format(df.columns[0], t0.strftime('%Y-%m-%d'), t1.strftime('%Y-%m-%d')))
+        return extract_features(df, **kw)
+    def _ftfl(self,ds,yr):
+        ftfl = ds
+        if self.feature_root: 
+            ftfl += '_'+self.feature_root     
+        if yr is not None and not self.feature_root.endswith('_{:d}'.format(yr)): 
+            ftfl += '_{:d}'.format(yr)
+        return self.featfile(ftfl)   
     def _get_label(self, ts):
         """ Compute label vector.
 
@@ -679,7 +768,7 @@ class ForecastModel(object):
                 Label vector.
         """
         return [self.data._is_eruption_in(days=self.look_forward, from_time=t) for t in pd.to_datetime(ts)]
-    def _load_data(self, ti, tf):
+    def _load_data(self, ti, tf, yr=None):
         """ Load feature matrix and label vector.
 
             Parameters:
@@ -703,36 +792,29 @@ class ForecastModel(object):
         except AttributeError:
             pass
 
-        # read from CSV file
-        try:
-            # t = pd.to_datetime(pd.read_csv(self.featfile, index_col=0, parse_dates=['time'], usecols=['time'], infer_datetime_format=True).index.values)
-            t = pd.to_datetime(load_dataframe(self.featfile, index_col=0, parse_dates=['time'], usecols=['time'], infer_datetime_format=True).index.values)
-            if (t[0] <= ti) and (t[-1] >= tf):
-                self.ti_prev = ti
-                self.tf_prev = tf
-                fM,ys = self._extract_features(ti,tf)
-                self.fM = fM
-                self.ys = ys
-                return fM,ys
-        except FileNotFoundError:
-            pass
-
         # range checking
         if tf > self.data.tf:
             raise ValueError("Model end date '{:s}' beyond data range '{:s}'".format(tf, self.data.tf))
         if ti < self.data.ti:
             raise ValueError("Model start date '{:s}' predates data range '{:s}'".format(ti, self.data.ti))
         
+        if yr is None:
         # divide training period into years
-        ts = [datetime(*[yr, 1, 1, 0, 0, 0]) for yr in list(range(ti.year+1, tf.year+1))]
-        if ti - self.dtw < self.data.ti:
-            ti = self.data.ti + self.dtw
-        ts.insert(0,ti)
-        ts.append(tf)
+            ts = [datetime(*[yr, 1, 1, 0, 0, 0]) for yr in list(range(ti.year+1, tf.year+1))]
+            if ti - self.dtw < self.data.ti:
+                ti = self.data.ti + self.dtw
+            ts.insert(0,ti)
+            ts.append(tf)
+        else:
+        # get hires data for one year, presumed to already have been calculated
+            ts = [ti,tf]
 
-        for t0,t1 in zip(ts[:-1], ts[1:]):
-            print('feature extraction {:s} to {:s}'.format(t0.strftime('%Y-%m-%d'), t1.strftime('%Y-%m-%d')))
-            fM,ys = self._extract_features(ti,t1)
+        fM = []
+        for ds in self.data_streams:
+            for t0,t1 in zip(ts[:-1], ts[1:]):
+                fMi,ys = self._extract_features(ti,t1,ds,yr)
+            fM.append(fMi)
+        fM = pd.concat(fM, axis=1, sort=False)
 
         self.ti_prev = ti
         self.tf_prev = tf
@@ -955,7 +1037,7 @@ class ForecastModel(object):
         ti = self.ti_model if ti is None else datetimeify(ti)
         tf = self.tf_model if tf is None else datetimeify(tf)
         return self._load_data(ti, tf)
-    def train(self, ti=None, tf=None, Nfts=20, Ncl=100, retrain=False, classifier="DT", random_seed=0,
+    def train(self, ti=None, tf=None, Nfts=20, Ncl=500, retrain=False, classifier="DT", random_seed=0,
             drop_features=[], n_jobs=6, exclude_dates=[], use_only_features=[]):
         """ Construct classifier models.
 
@@ -999,6 +1081,7 @@ class ForecastModel(object):
         self.exclude_dates = exclude_dates
         self.use_only_features = use_only_features
         self.n_jobs = n_jobs
+        self.Ncl = Ncl
         makedir(self.modeldir)
 
         # initialise training interval
@@ -1021,7 +1104,7 @@ class ForecastModel(object):
             _ = [os.remove(fl) for fl in  glob('{:s}/*'.format(self.modeldir))]
 
         # get feature matrix and label vector
-        fM, ys = self._load_data(self.ti_train, self.tf_train)
+        fM, ys = self._load_data(self.ti_train, self.tf_train, None)
 
         # manually drop features (columns)
         fM = self._drop_features(fM, drop_features)
@@ -1062,7 +1145,7 @@ class ForecastModel(object):
         del fM
         gc.collect()
         self._collect_features()
-    def forecast(self, ti=None, tf=None, recalculate=False, use_model=None, n_jobs=None):
+    def forecast(self, ti=None, tf=None, recalculate=False, use_model=None, n_jobs=None, yr=None):
         """ Use classifier models to forecast eruption likelihood.
 
             Parameters:
@@ -1084,11 +1167,38 @@ class ForecastModel(object):
             consensus : pd.DataFrame
                 The model consensus, indexed by window date.
         """
+        # special case of high resolution forecast where multiple feature matrices exist
+        if yr is None and (self.io+1 == self.iw): 
+            forecast = []
+            fr = copy(self.feature_root)
+
+            # use hires feature matrices for each year
+            for yr in list(range(ti.year, tf.year+1)):
+                # get limits of feature matrix
+                self.feature_root = fr + '_{:d}'.format(yr)
+                ftfl = self.featfile(self.data_streams[0]+'_'+self.feature_root)
+                t = pd.to_datetime(load_dataframe(ftfl, index_col=0, parse_dates=['time'], usecols=['time'], infer_datetime_format=True).index.values)
+                # compute forecast for that year
+                forecast_i = self.forecast(t[0],t[-1],recalculate,use_model,n_jobs,yr)    
+                forecast.append(forecast_i)
+            self.feature_root = fr 
+
+            # merge the individual forecasts and ensure that original limits are respected
+            forecast = pd.concat(forecast, sort=False)
+            return forecast[(forecast.index>=ti)&(forecast.index<=tf)]
+
         self._use_model = use_model
         makedir(self.preddir)
+        yr_str = '_{:d}'.format(yr) if yr is not None else ''
+        confl = '{:s}/consensus{:s}'.format(self.preddir,'{:s}.{:s}'.format(yr_str, self.savefile_type))
+        
+        if os.path.isfile(confl) and not recalculate:
+            return load_dataframe(confl)
 
         #
-        if n_jobs is not None: self.n_jobs = n_jobs 
+        if n_jobs is not None: 
+            self.n_jobs = n_jobs 
+
         self.ti_forecast = self.ti_model if ti is None else datetimeify(ti)
         self.tf_forecast = self.tf_model if tf is None else datetimeify(tf)
         if self.tf_forecast > self.data.tf:
@@ -1108,44 +1218,45 @@ class ForecastModel(object):
         # logic to determine which models need to be run and which to be 
         # read from disk
         pref = type(model).__name__
-        fls = glob('{:s}/{:s}_*.pkl'.format(model_path, pref))
-        load_predictions = []
+        models = glob('{:s}/{:s}_*.pkl'.format(model_path, pref))
         run_predictions = []
-        ys = []
-        if recalculate:
-            run_predictions = [(rp, rp.replace(model_path, self.preddir+os.sep).replace('.pkl','.{:s}'.format(self.savefile_type))) for rp in fls]
-            ti = self.ti_forecast
-        else:
-            tis = []
-            for fl in fls:
-                num = fl.split(os.sep)[-1].split('_')[-1].split('.')[0]
-                flp = '{:s}/{:s}_{:s}.{:s}'.format(self.preddir, pref, num, self.savefile_type)
-                if not os.path.isfile(flp):
-                    run_predictions.append([fl, flp])
+        ys = []        
+        tis = []
+
+        # create a prediction for each model
+        for model in models:
+            # change location
+            pred = model.replace(model_path, self.preddir+os.sep)
+            # update filetype
+            pred = pred.replace('.pkl','{:s}.{:s}'.format(yr_str, self.savefile_type))                
+
+            # check if prediction already exists
+            if os.path.isfile(pred):
+                if recalculate:
+                    # delete predictions to be recalculated
+                    os.remove(pred)
+                    run_predictions.append([model, pred])  
                     tis.append(self.ti_forecast)
                 else:
-                    y = load_dataframe(flp, index_col=0, parse_dates=['time'], infer_datetime_format=True)
+                    # load an existing prediction
+                    y = load_dataframe(pred, index_col=0, parse_dates=['time'], infer_datetime_format=True)
+                    # check if prediction spans the requested interval
                     if y.index[-1] < self.tf_forecast:
-                        run_predictions.append([fl, flp])
+                        run_predictions.append([model, pred])
                         tis.append(y.index[-1])
                     else:
                         ys.append(y)
-            if len(tis)>0:
-                ti = np.min(tis)
-
-        # ys = []            
-        # # load existing predictions
-        # for fl in load_predictions:
-        #     # y = pd.read_csv(fl, index_col=0, parse_dates=['time'], infer_datetime_format=True)
-        #     y = load_dataframe(fl, index_col=0, parse_dates=['time'], infer_datetime_format=True)
-        #     ys.append(y)
+            else:
+                run_predictions.append([model, pred])  
+                tis.append(self.ti_forecast)
+        
+        if len(tis)>0:
+            ti = np.min(tis)
 
         # generate new predictions
         if len(run_predictions)>0:
-            # run_predictions = [(rp, rp.replace(model_path, self.preddir+os.sep).replace('.pkl','.{:s}'.format(self.savefile_type))) for rp in run_predictions]
-
             # load feature matrix
-            fM,_ = self._extract_features(ti, self.tf_forecast)
+            fM,_ = self._load_data(ti, self.tf_forecast, yr)
 
             # setup predictor
             if self.n_jobs > 1:
@@ -1155,11 +1266,14 @@ class ForecastModel(object):
                 mapper = map
             f = partial(predict_one_model, fM, model_path, pref)
 
-            # train models with glorious progress bar
+            # run models with glorious progress bar
             f(run_predictions[0])
             for i, y in enumerate(mapper(f, run_predictions)):
                 cf = (i+1)/len(run_predictions)
-                print(f'forecasting: [{"#"*round(50*cf)+"-"*round(50*(1-cf))}] {100.*cf:.2f}%\r', end='') 
+                if yr is None:
+                    print(f'forecasting: [{"#"*round(50*cf)+"-"*round(50*(1-cf))}] {100.*cf:.2f}%\r', end='') 
+                else:
+                    print(f'forecasting {yr:d}: [{"#"*round(50*cf)+"-"*round(50*(1-cf))}] {100.*cf:.2f}%\r', end='') 
                 ys.append(y)
             
             if self.n_jobs > 1:
@@ -1170,8 +1284,8 @@ class ForecastModel(object):
         ys = pd.concat(ys, axis=1, sort=False)
         consensus = np.mean([ys[col].values for col in ys.columns if 'pred' in col], axis=0)
         forecast = pd.DataFrame(consensus, columns=['consensus'], index=ys.index)
-        # forecast.to_csv('{:s}/consensus.csv'.format(self.preddir), index=True, index_label='time')
-        save_dataframe(forecast, '{:s}/consensus.{:s}'.format(self.preddir,self.savefile_type), index=True, index_label='time')
+
+        save_dataframe(forecast, confl, index=True, index_label='time')
         
         # memory management
         if len(run_predictions)>0:
@@ -1219,9 +1333,12 @@ class ForecastModel(object):
         # calculate hires feature matrix
         if root is None:
             root = self.root+'_hires'
-        _fm = ForecastModel(self.window, 1., self.look_forward, self.station, ti, tf, self.data_streams, root=root, savefile_type=self.savefile_type)
+        _fm = ForecastModel(self.window, 1., self.look_forward, station=self.station, ti=ti, tf=tf, 
+            data_streams=self.data_streams, root=root, savefile_type=self.savefile_type, feature_root=root,
+            feature_dir=self.featdir)
         _fm.compute_only_features = list(set([ft.split('__')[1] for ft in self._collect_features()[0]]))
-        _fm._extract_features(ti, tf)
+        for ds in self.data_streams:
+            _fm._extract_features(ti, tf, ds)
 
         # predict on hires features
         ys = _fm.forecast(ti, tf, recalculate, use_model=self.modeldir, n_jobs=n_jobs)
@@ -1231,6 +1348,21 @@ class ForecastModel(object):
 
         return ys
     # plotting methods
+    def _compute_CI(self, y):
+        """ Computes a 95% confidence interval of the model consensus.
+
+        Parameters:
+        -----------
+        y : numpy.array
+            Model consensus returned by ForecastModel.forecast.
+        
+        Returns:
+        --------
+        ci : numpy.array
+            95% confidence interval of the model consensus
+        """
+        ci = 1.96*(np.sqrt(y*(1-y)/self.Ncl))
+        return ci
     def plot_forecast(self, ys, threshold=0.75, save=None, xlim=['2019-12-01','2020-02-01']):
         """ Plot model forecast.
 
@@ -1313,7 +1445,7 @@ class ForecastModel(object):
         
         plt.savefig(save, dpi=400)
         plt.close(f)
-    def _plot_hires_forecast(self, ys, save, threshold=0.75, nztimezone=False, alt_rsam=None, xlim=None):
+    def _plot_hires_forecast(self, ys, save, threshold=0.75, station='WIZ', nztimezone=False, alt_rsam=None, xlim=None):
         """ Plot model hires version of model forecast (single axes).
 
             Parameters:
@@ -1327,82 +1459,91 @@ class ForecastModel(object):
         """
         makedir(self.plotdir)
         # set up figures and axes
-        f = plt.figure(figsize=(8,8))
-        ax1 = plt.axes([0.1, 0.55, 0.8, 0.4])
-        ax2 = plt.axes([0.1, 0.08, 0.8, 0.4])
+        f = plt.figure(figsize=(8,4))
+        ax = plt.axes([0.1, 0.08, 0.8, 0.8])
         t = pd.to_datetime(ys.index.values)
-        rsam = self.data.get_data(t[0], t[-1])['rsam']
+        if 'zsc_rsam' in self.data_streams and 'rsam' not in self.data_streams:
+            rsam = self.data.get_data(t[0], t[-1])['zsc_rsam']
+        else: 
+            rsam = self.data.get_data(t[0], t[-1])['rsam']
         trsam = rsam.index
-        if alt_rsam is not None:
-            alt_trsam = alt_rsam.index
         if nztimezone:
             t = to_nztimezone(t)
             trsam = to_nztimezone(trsam)
-            ax2.set_xlabel('Local time')
-            if alt_rsam is not None:
-                alt_trsam = to_nztimezone(alt_trsam)
+            ax.set_xlabel('Local time')
         else:
-            ax2.set_xlabel('UTC')
+            ax.set_xlabel('UTC')
         y = np.mean(np.array([ys[col] for col in ys.columns]), axis=0)
-        
-        ts = [t[-1], trsam[-1]]
-        if alt_rsam is not None: ts.append(alt_trsam[-1])
-        tmax = np.max(ts)
-        ax2.set_xlim([tmax-timedelta(days=7), tmax])
-        ax1.set_xlim([t[0], tmax])
-        ax1.set_title('Whakaari Eruption Forecast')
-        for ax in [ax1,ax2]:
-            ax.set_ylim([-0.05, 1.05])
-            ax.set_yticks([0,0.25,0.50,0.75,1.00])
-            ax.set_ylabel('ensemble mean')
-        
-            # consensus threshold
-            ax.axhline(threshold, color='k', linestyle=':', label='alert threshold', zorder=4)
+                
+        ax.set_ylim([-0.05, 1.05])
+        ax.set_yticks([0,0.25,0.50,0.75,1.00])
+        ax.set_ylabel('ensemble mean')
+    
+        # consensus threshold
+        ax.axhline(threshold, color='k', linestyle=':', label='alert threshold', zorder=4)
 
-            # modelled alert
-            ax.plot(t, y, 'c-', label='ensemble mean', zorder=4, lw=0.75)
-            ax_ = ax.twinx()
-            ax_.set_ylabel('RSAM [$\mu$m s$^{-1}$]')
-            ax_.set_ylim([0,5])
-            ax_.set_xlim(ax.get_xlim())
-            if alt_rsam is not None:
-                ax_.plot(alt_trsam, alt_rsam.values*1.e-3, '-', color=[0.5,0.5,0.5], lw=0.75)
-            ax_.plot(trsam, rsam.values*1.e-3, 'k-', lw=0.75)
+        # modelled alert
+        ax.plot(t, y, 'c-', label='ensemble mean', zorder=4, lw=0.75)
+        ci = self._compute_CI(y)
+        ax.fill_between(t, (y-ci), (y+ci), color='c', zorder=5, alpha=0.3)
+        ax_ = ax.twinx()
+        ax_.set_ylabel('RSAM [$\mu$m s$^{-1}$]')
+        ax_.set_ylim([0,5])
+        # ax_.set_xlim(ax.get_xlim())
+        ax_.plot(trsam, rsam.values*1.e-3, 'k-', lw=0.75)
 
-            for tii,yi in zip(t, y):
-                if yi > threshold:
-                    ax.fill_between([tii, tii+self.dtf], [0,0], [100,100], color='y', zorder=3)
-                    
-            ax.fill_between([], [], [], color='y', label='eruption forecast')
-            ax.plot([],[],'k-', lw=0.75, label='RSAM')
-            if alt_rsam is not None:
-                ax.plot([],[],'-', color=[0.5,0.5,0.5], lw=0.75, label='RSAM (WSRZ-scaled)')
-        ax1.legend(loc=1, ncol=2)
-        if xlim is not None: 
-            ax2.set_xlim(xlim)
-            tmax = xlim[-1] 
+        for tii,yi in zip(t, y):
+            if yi > threshold:
+                ax.fill_between([tii, tii+self.dtf], [0,0], [100,100], color='y', zorder=3)
+
+        for te in self.data.tes:
+            ax.axvline(te, color = 'r', linestyle='--', zorder=10)    
+        ax.plot([],[], 'r--', label='eruption')    
+        ax.fill_between([], [], [], color='y', label='eruption forecast')
+        ax.plot([],[],'k-', lw=0.75, label='RSAM')
+
+        ax.legend(loc=2, ncol=2)
+
+        tmax = np.max([t[-1], trsam[-1]])
+        tmin = np.min([t[0], trsam[0]])
+        if xlim is None:
+            xlim = [tmin,tmax]
+        tmax = xlim[-1] 
         tf = tmax 
         t0 = tf.replace(hour=0, minute=0, second=0)
         xts = [t0 - timedelta(days=i) for i in range(7)][::-1]
         lxts = [xt.strftime('%d %b') for xt in xts]
-        ax2.set_xticks(xts)
-        ax2.set_xticklabels(lxts)
-        tfi  = self.data.tf
-        if nztimezone:
-            tfi = to_nztimezone([tfi])[0]
-        ax2.text(0.025, 0.95, 'model last updated {:s}'.format(tfi.strftime('%H:%M, %d %b %Y')), size = 12, ha = 'left', 
-            va = 'top', transform=ax2.transAxes)
+        ax.set_xticks(xts)
+        ax.set_xticklabels(lxts)
         
-        t0 = datetimeify('2020-01-01')
-        xts = [t0.replace(month=i) for i in range(1, tf.month+1)]
-        lxts = [xt.strftime('%d %b') for xt in xts]
-        ax1.set_xticks(xts)
-        ax1.set_xticklabels(lxts)
-        ax1.text(0.025, 0.95, t0.strftime('%Y'), size = 12, ha = 'left', 
-            va = 'top', transform=ax1.transAxes)
+        ax.set_xlim(xlim)
+        ax_.set_xlim(xlim)
+        
+        ax.text(0.025, 0.95, ys.index[-1].strftime('%Y'), size = 12, ha = 'left', va = 'top', transform=ax.transAxes)
 
         plt.savefig(save, dpi=400)
         plt.close(f)
+    def get_performance(self, t, y, thresholds, ialert=None, dti=None):
+        # time series
+        makedir(self.preddir)
+        label_file = self.preddir+'/labels.pkl'
+        if not os.path.isfile(label_file):
+            ys = np.array([self.data._is_eruption_in(days=self.look_forward, from_time=ti) for ti in pd.to_datetime(t)])
+            save_dataframe(ys, label_file)
+        self._ys = load_dataframe(label_file)
+
+        if ialert is None:
+            ialert = self.look_forward/((1-self.overlap)*self.window)
+        if dti is None:
+            dti = timedelta(days=(1-self.overlap)*self.window)
+        FP, FN, TP, TN, dur, MCC=[np.zeros(len(thresholds)) for i in range(6)]
+        for j,threshold in enumerate(thresholds):
+            if threshold == 0:
+                FP[j]=int(1e8); dur[j]=1.; TP[j]=len(self.data.tes); TN[j]=1
+            else:
+                FP[j], FN[j], TP[j], TN[j], dur[j], MCC[j] = self._model_alerts(t, y, threshold, ialert, dti)
+
+        return FP, FN, TP, TN, dur, MCC
     def plot_accuracy(self, ys, save=None):
         """ Plot performance metrics for model.
 
@@ -1418,32 +1559,14 @@ class ForecastModel(object):
         if save is None:
             save = '{:s}/accuracy.png'.format(self.plotdir)
         
-        # time series
-        t = ys.index
-        
-        self._ys = np.array([self.data._is_eruption_in(days=self.look_forward, from_time=ti) for ti in pd.to_datetime(ys.index)])
         thresholds = np.linspace(0.0,1.0,101)
-        ialert = self.look_forward/((1-self.overlap)*self.window)
-        dti = timedelta(days=(1-self.overlap)*self.window)
-        FPs = [int(1e8)]; FNs = [0]; alert_duration = [1.]; TPs = [len(self.data.tes)]; TNs = [1]
-        MCC = [0.]
-        for j,threshold in enumerate(thresholds[1:]):
-            
-            FP, FN, TP, TN, dur, mcc = self._model_alerts(t, ys['consensus'], threshold, ialert, dti)
-
-            FPs.append(FP)
-            FNs.append(FN)
-            TPs.append(TP)
-            TNs.append(TN)
-            alert_duration.append(dur)
-            MCC.append(mcc)
-
-        FPs = np.array(FPs); FNs = np.array(FNs); TPs = np.array(TPs); TNs = np.array(TNs); MCC = np.array(MCC)
+        FPs, FNs, TPs, TNs, alert_duration, MCC = self.get_performance(ys.index, ys['consensus'], thresholds)
+        
         with open(save.replace('png','txt'),'w') as fp:
             fp.write('threshold,FP,FN,TP,TN,alert_fraction,MCC\n')
             _ = [fp.write('{:4.3f},{:d},{:d},{:d},{:d},{:4.3f},{:4.3f}\n'.format(*vals)) for vals 
                     in zip(thresholds,FPs,FNs,TPs,TNs,alert_duration,MCC)]
-        MCC = (TPs*TNs-FPs*FNs)/np.sqrt((TPs+FPs)*(TPs+FNs)*(TNs+FPs)*(TNs+FNs))
+        # MCC = (TPs*TNs-FPs*FNs)/np.sqrt((TPs+FPs)*(TPs+FNs)*(TNs+FPs)*(TNs+FNs))
         F1 = 2*TPs/(2*TPs+FPs+FNs)
         accuracy = (TPs+TNs)/(TPs+TNs+FPs+FNs)
         f = plt.figure(figsize=(10,10))
@@ -1739,11 +1862,13 @@ def get_data_for_day(i,t0,station):
     client_nrt = FDSNClient('https://service-nrt.geonet.org.nz')
     
     daysec = 24*3600
-    data_streams = [[2, 5], [4.5, 8], [8,16]]
+    fbands = [[2, 5], [4.5, 8], [8,16]]
     names = ['rsam','mf','hf']
+    frs = [200, 100, 50]
 
     # download data
     datas = []
+    columns = []
     try:
         site = client.get_stations(starttime=t0+i*daysec, endtime=t0 + (i+1)*daysec, station=station, level="response", channel="HHZ")
     except FDSNNoDataException:
@@ -1764,37 +1889,115 @@ def get_data_for_day(i,t0,station):
     # process frequency bands
     WIZ.remove_sensitivity(inventory=site)
     data = WIZ.traces[0].data
+    dataI = cumtrapz(data, dx=1./100, initial=0)
     ti = WIZ.traces[0].meta['starttime']
         # round start time to nearest 10 min increment
     tiday = UTCDateTime("{:d}-{:02d}-{:02d} 00:00:00".format(ti.year, ti.month, ti.day))
     ti = tiday+int(np.round((ti-tiday)/600))*600
     N = 600*100                             # 10 minute windows in seconds
-    Nm = int(N*np.floor(len(data)/N))
-    for data_stream, name in zip(data_streams, names):
-        filtered_data = bandpass(data, data_stream[0], data_stream[1], 100)
-        filtered_data = abs(filtered_data[:Nm])
-        datas.append(filtered_data.reshape(-1,N).mean(axis=-1)*1.e9)
+    m = len(data)//N
+    Nm = N*m       # number windows in data
+    
+    # apply filters and remove filter response
+    _datas = []; _dataIs = []
+    for (fmin,fmax),fr in zip(fbands,frs):
+        _data = abs(bandpass(data, fmin, fmax, 100))*1.e9
+        _dataI = abs(bandpass(dataI, fmin, fmax, 100))*1.e9
+        _data[:fr] = np.mean(_data[fr:600])
+        _dataI[:fr] = np.mean(_dataI[fr:600])
+        _datas.append(_data)
+        _dataIs.append(_dataI)
+    
+    # find outliers in each 10 min window
+    outliers = []
+    maxIdxs = [] 
+    for k in range(m):
+        outlier, maxIdx = outlierDetection(_datas[0][k*N:(k+1)*N])
+        outliers.append(outlier)
+        maxIdxs.append(maxIdx)
 
-    # compute dsar
-    data = cumtrapz(data, dx=1./100, initial=0)
-    data -= np.mean(data)
-    j = names.index('mf')
-    mfd = bandpass(data, data_streams[j][0], data_streams[j][1], 100)
-    mfd = abs(mfd[:Nm])
-    mfd = mfd.reshape(-1,N).mean(axis=-1)
-    j = names.index('hf')
-    hfd = bandpass(data, data_streams[j][0], data_streams[j][1], 100)
-    hfd = abs(hfd[:Nm])
-    hfd = hfd.reshape(-1,N).mean(axis=-1)
-    dsar = mfd/hfd
-    datas.append(dsar)
-    names.append('dsar')
+    # compute rsam and other bands (w/ EQ filter)
+    f = 0.1 # Asymmetry factor
+    numSubDomains = 4
+    subDomainRange = N//numSubDomains # No. data points per subDomain    
+    for _data,name,fr in zip(_datas, names, frs):
+        dr = []
+        df = []
+        for k, outlier, maxIdx in zip(range(m), outliers, maxIdxs):
+            domain = _data[k*N:(k+1)*N]
+            domain = np.delete(domain, range(200)) # delete filter response in first 200 points
+            dr.append(np.mean(domain))
+            if outlier: # If data needs filtering
+                Idx = wrapped_indices(maxIdx, f, subDomainRange, N)
+                domain = np.delete(domain, Idx) # remove the subDomain with the largest peak
+            df.append(np.mean(domain))
+        datas.append(np.array(dr)); columns.append(name)
+        datas.append(np.array(df)); columns.append(name+'F')
+
+    # compute dsar (w/ EQ filter)
+    dr = []
+    df = []
+    for k, outlier, maxIdx in zip(range(m), outliers, maxIdxs):
+        domain_mf = _dataIs[1][k*N:(k+1)*N]
+        domain_hf = _dataIs[2][k*N:(k+1)*N]
+        dr.append(np.mean(domain_mf)/np.mean(domain_hf))
+        if outlier: # If data needs filtering
+            Idx = wrapped_indices(maxIdx, f, subDomainRange, N)
+            domain_mf = np.delete(domain_mf, Idx) 
+            domain_hf = np.delete(domain_hf, Idx) 
+        df.append(np.mean(domain_mf)/np.mean(domain_hf))
+    datas.append(np.array(dr)); columns.append('dsar')
+    datas.append(np.array(df)); columns.append('dsarF')
 
     # write out temporary file
     datas = np.array(datas)
     time = [(ti+j*600).datetime for j in range(datas.shape[1])]
-    df = pd.DataFrame(zip(*datas), columns=names, index=pd.Series(time))
+    df = pd.DataFrame(zip(*datas), columns=columns, index=pd.Series(time))
     save_dataframe(df, '_tmp/_tmp_fl_{:05d}.csv'.format(i), index=True, index_label='time')
+
+def wrapped_indices(maxIdx, f, subDomainRange, N):
+    startIdx = int(maxIdx-np.floor(f*subDomainRange)) # Compute the index of the domain where the subdomain centered on the peak begins
+    endIdx = startIdx+subDomainRange # Find the end index of the subdomain
+    if endIdx >= N: # If end index exceeds data range
+        Idx = list(range(endIdx-N)) # Wrap domain so continues from beginning of data range
+        end = list(range(startIdx, N))
+        Idx.extend(end)
+    elif startIdx < 0: # If starting index exceeds data range
+        Idx = list(range(endIdx))
+        end = list(range(N+startIdx, N)) # Wrap domains so continues at end of data range
+        Idx.extend(end)
+    else:
+        Idx = list(range(startIdx, endIdx))
+    return Idx
+
+def outlierDetection(data, outlier_degree=0.5):
+    """ Determines whether a given data interval requires earthquake filtering
+
+    Parameters:
+    -----------
+    data : list
+        10 minute interval of a processed datastream (rsam, mf, hf, mfd, hfd).
+    outlier_degree : float
+        exponent (base 10) which determines the Z-score required to be considered an outlier.
+    
+    Returns:
+    --------
+    outlier : boolean
+        Is the maximum of the data considered an outlier?
+    maxIdx : int
+        Index of the maximum of the data
+    """
+    mean = np.mean(data)
+    std = np.std(data)
+    maxIdx = np.argmax(data)
+    # compute Z-score
+    Zscr = (data[maxIdx]-mean)/std
+    # Determine if an outlier
+    if Zscr > 10**outlier_degree:
+        outlier = True
+    else:
+        outlier = False
+    return outlier, maxIdx
 
 def update_geonet_data():
     """ Download latest GeoNet data for WIZ.

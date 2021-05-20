@@ -5,6 +5,8 @@ features/
 predictions/
 plots/
 controller/
+scripts/*.pkl
+scripts/posteriors/
 _tmp/
 .vscode/
 *.png
