@@ -161,34 +161,21 @@ class ForecastModelHybrid(ForecastModel):
         gc.collect()
         self._collect_features()
 
-def hybrid_forecaster(i):
-    """ This function constructs a hybrid forecaster for WSRZ using data from WIZ to fill any outage gaps. 
-    
-        Notes:
-        ------
-        Gaussian Process regression is used to interpolate data gaps in feature space.
-    """
-    # get high resolution outage data
-    to_WIZ, to_WSRZ = get_outages()
-    
+def hybrid_falsealarms():    
     # load feature matrices for WIZ and WSRZ
     data_streams = ['zsc_rsamF','zsc_hfF','zsc_mfF','zsc_dsarF']
     fm0 = ForecastModelHybrid(window=2., overlap=0.75, look_forward=2., data_streams=data_streams, 
         root='original_forecaster', savefile_type='pkl', station='WIZ', feature_dir=r'E:\whakaari\features')
     fM0,_ = fm0._load_data(fm0.data.ti, fm0.data.tf)
-
+    
     fm = ForecastModelHybrid(window=2., overlap=0.75, look_forward=2., data_streams=data_streams, 
-        root='hybrid_e{:d}'.format(i+1), savefile_type='pkl', station='WSRZ', feature_dir=r'E:\whakaari\features')
+        root='hybrid_e0', savefile_type='pkl', station='WSRZ', feature_dir=r'E:\whakaari\features')
     fM,_ = fm._load_data(fm.data.ti, fm.data.tf)
 
-    # locate "common" windows (containing sufficient data for both WIZ and WSRZ), "missing" and "present"
-    # eruption windows for WSRZ
-    t_c, t_m, t_p = get_window_overlap(tos=[to_WIZ, to_WSRZ], tis=[fM0.index, fM.index], tes=fm0.data.tes, 
-        window=fm0.window, look_forward=fm0.look_forward, dt=fm0.dt, tolerable_outage_fraction=0.125, recalculate=True)
-    # t_c, t_m, t_p = get_window_overlap(None, None, None, None, None, None, None, False)
+    t_c, t_m, t_p = get_window_overlap(None, None, None, None, None, None, None, False)
 
     # for each feature, train an interpolating function
-    interpolators_file = 'zsc_gprs.pkl'
+    interpolators_file = 'zsc_gprs_e0.pkl'
     if not os.path.isfile(interpolators_file):
         gprs = batch_interpolation(fMs=[fM0, fM], t = [t_c, t_m, t_p], plot=True, recalculate=True)
         save_dataframe(gprs, interpolators_file)
@@ -206,8 +193,103 @@ def hybrid_forecaster(i):
     drop_features += ['*fft_coefficient__coeff_{:d}*'.format(i) for i in range(freq_max+1, 2*freq_max+2)]    
 
     n_jobs = 8
+
+    fm.train(drop_features=drop_features, retrain=True, Ncl=500, n_jobs=n_jobs,
+        recalculate_posteriors=True)        
     
+    ys = fm.hires_forecast(ti=fm.ti_train, tf=fm.tf_train, recalculate=True, n_jobs=n_jobs,
+            root=r'{:s}_hires'.format(fm.root), threshold=1.0)    
+
+    y = np.mean(np.array([ys[col] for col in ys.columns]), axis=0)
+    dy = fm._compute_CI(y)
+
+    thresholds = np.linspace(0,1.0,101)
+    ialert = int(fm.look_forward/(fm.dt.total_seconds()/(24*3600)))
+    FP, FN, TP, TN, dur, MCC = fm.get_performance(ys.index, y-dy, thresholds, ialert, fm.dt)
+    f,ax1 = plt.subplots(1,1)
+    ax1.plot(thresholds, dur, 'k-', label='fractional alert duration')
+    ax1.plot(thresholds, TP/(FP+TP), 'k--', label='probability of eruption\nduring alert')
+    ax1_ = ax1.twinx()
+    ax1_.plot(thresholds, dur*ys.shape[0]/6/24/(FP+TP), 'b-')
+    ax1.plot([], [], 'b-', label='average alert length')
+
+    conf = []
+    for i in [2,5]:
+        with open(fm.plotdir+'/../hybrid_e{:d}/confidence.txt'.format(i)) as fp:
+            conf.append(float(fp.readline().strip()))
+    conf = min(conf)
+    j = np.argmin(abs(thresholds-conf))
+    th = thresholds[j]
+    th0 = thresholds[0]
+    th1 = thresholds[-1]
+    ax1.axvline(th, color = 'k', linestyle=':', alpha=0.5, 
+        label='model conf. {:3.2f}'.format(th))
+    ax1.plot([th0,th], [dur[j],dur[j]], 'k-', alpha=0.5, lw=0.5)
+    tp = TP[j]/(FP[j]+TP[j])
+    ax1.plot([th0,th], [tp,tp], 'k--', alpha=0.5, lw=0.5)
+    ax1.text(-.01*th1, tp, '{:3.2f}'.format(tp), ha='right', va='center')
+    ax1.text(-.01*th1, dur[j], '{:3.2f}'.format(dur[j]), ha='right', va='center')
+    
+    dj = dur[j]*ys.shape[0]/6/24/(FP[j]+TP[j])
+    ax1_.plot([th,th1], [dj, dj], 'b-', alpha=0.5, lw=0.5)
+    ax1_.text(1.01*th1, dj, '{:2.1f} days'.format(dj), ha='left', va='center')
+    ax1.set_xlim([th0,th1])
+    ax1_.set_xlim([th0,th1])
+    
+    ax1.legend()
+    ax1.set_xlabel('alert threshold')
+    ax1_.set_ylabel('days')
+    plt.savefig('hybrid.png',dpi=400)
+def hybrid_forecaster(i):
+    """ This function constructs a hybrid forecaster for WSRZ using data from WIZ to fill any outage gaps. 
+    
+        Notes:
+        ------
+        Gaussian Process regression is used to interpolate data gaps in feature space.
+    """
+    # get high resolution outage data
+    to_WIZ, to_WSRZ = get_outages()
+    
+    # load feature matrices for WIZ and WSRZ
+    data_streams = ['zsc_rsamF','zsc_hfF','zsc_mfF','zsc_dsarF']
+    fm0 = ForecastModelHybrid(window=2., overlap=0.75, look_forward=2., data_streams=data_streams, 
+        root='original_forecaster', savefile_type='pkl', station='WIZ', feature_dir=r'E:\whakaari\features')
+    fM0,_ = fm0._load_data(fm0.data.ti, fm0.data.tf)
     te = fm0.data.tes[i]
+
+    fm = ForecastModelHybrid(window=2., overlap=0.75, look_forward=2., data_streams=data_streams, 
+        root='hybrid_e{:d}'.format(i+1), savefile_type='pkl', station='WSRZ', feature_dir=r'E:\whakaari\features')
+    fM,_ = fm._load_data(fm.data.ti, fm.data.tf)
+
+    # locate "common" windows (containing sufficient data for both WIZ and WSRZ), "missing" and "present"
+    # eruption windows for WSRZ
+    # t_c, t_m, t_p = get_window_overlap(tos=[to_WIZ, to_WSRZ], tis=[fM0.index, fM.index], tes=fm0.data.tes, 
+    #     window=fm0.window, look_forward=fm0.look_forward, dt=fm0.dt, tolerable_outage_fraction=0.125, recalculate=True)
+    t_c, t_m, t_p = get_window_overlap(None, None, None, None, None, None, None, False)
+
+    # for each feature, train an interpolating function
+    interpolators_file = 'zsc_gprs_e{:d}.pkl'.format(i+1)
+    if not os.path.isfile(interpolators_file):
+        # if they exist, drop "test" eruption windows from "present" (test data cannot be used to train
+        # the interpolators)
+        t_p = t_p[np.where((t_p<(te-_MONTH))|(t_p>(te+_MONTH)))]
+        gprs = batch_interpolation(fMs=[fM0, fM], t = [t_c, t_m, t_p], plot=True, recalculate=True)
+        save_dataframe(gprs, interpolators_file)
+    gprs = load_dataframe(interpolators_file)
+
+    # pass interpolating function information to ForecastModel object for training
+    fm._t_c = sorted(np.array(list(t_c)+list(t_m)))
+    fm._interpolators = [gprs, fM0.loc[t_m]]
+    
+    # remove duplicate linear features (because correlated), unhelpful fourier compoents
+    # and fourier harmonics too close to Nyquist
+    drop_features = ['linear_trend_timewise','agg_linear_trend','*attr_"imag"*','*attr_"real"*',
+        '*attr_"angle"*']  
+    freq_max = fm.dtw//fm.dt//4
+    drop_features += ['*fft_coefficient__coeff_{:d}*'.format(i) for i in range(freq_max+1, 2*freq_max+2)]    
+
+    n_jobs = 8
+    
     exclude_dates = [[te-_MONTH,te+_MONTH],]
 
     fm.train(drop_features=drop_features, retrain=True, Ncl=500, n_jobs=n_jobs,
@@ -225,7 +307,6 @@ def hybrid_forecaster(i):
     with open(r'{:s}/confidence.txt'.format(fm.plotdir), 'w') as fp:
         fp.write('{:4.3f}'.format(conf))
         # break
-
 def train_one_model_posterior(fM, ys, Nfts, modeldir, classifier, retrain, random_seed, random_state):
     
     # undersample data
@@ -282,7 +363,7 @@ def _get_outages(station):
     """
     # load data at station
     td = TremorData(station=station)
-    td.update()
+    # td.update()
 
     t = []
     for ti,v0,vm,v1 in zip(td.df.index[1:-1],td.df['rsam'].values[:-2],td.df['rsam'].values[1:-1],td.df['rsam'].values[2:]):
@@ -547,8 +628,11 @@ def get_hybrid_feature_matrix(fM, i):
 
 def main():
     # build and run hybrid forecast model
-    for i in [1, 3, 4]:
-        hybrid_forecaster(i)   
+    # for i in [1, 3, 4]:
+    #     hybrid_forecaster(i)   
+
+    #hybrid_falsealarms()
+    print('hi')
 
 if __name__ == "__main__":
     main()

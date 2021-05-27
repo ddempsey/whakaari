@@ -177,6 +177,31 @@ class TremorData(object):
                 # self.df['zsc_'+col]=(self.df[col]-mn)/std
                 self.df['zsc_'+col] = self.df['zsc_'+col].fillna(minzsc)
                 self.df['zsc_'+col]=10**self.df['zsc_'+col]
+            if self._check_transform('zsc2_'+col):
+                # log data
+                dt = np.log10(self.df[col]).replace([np.inf, -np.inf], np.nan).dropna()
+                
+                # Drop test data
+                if len(self.parent.exclude_dates) != 0:
+                    for exclude_date_range in self.parent.exclude_dates:
+                        t0,t1 = [datetimeify(date) for date in exclude_date_range]
+                        inds = (dt.index<t0)|(dt.index>=t1)
+                        dt = dt.loc[inds]
+
+                # Record mean/std/min
+                mn = np.mean(dt)
+                std = np.std(dt)
+                minzsc = np.min(dt)                                                    
+
+                # Calculate percentile
+                self.df['zsc2_'+col]=(np.log10(self.df[col])-mn)/std
+                # self.df['zsc_'+col]=(self.df[col]-mn)/std
+                self.df['zsc2_'+col] = self.df['zsc2_'+col].fillna(minzsc)
+                self.df['zsc2_'+col]=10**self.df['zsc2_'+col]
+
+                self.df['zsc2_'+col] = self.df['zsc2_'+col].rolling(window=2).min()
+                self.df['zsc2_'+col][0] = self.df['zsc2_'+col][1]
+             
     def _is_eruption_in(self, days, from_time):
         """ Binary classification of eruption imminence.
 
