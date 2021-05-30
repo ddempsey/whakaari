@@ -1,4 +1,4 @@
-import os, sys, shutil, gc
+import os, sys, gc
 sys.path.insert(0, os.path.abspath('..'))
 from whakaari import (TremorData, ForecastModel, 
     datetimeify, makedir, get_classifier, train_one_model)

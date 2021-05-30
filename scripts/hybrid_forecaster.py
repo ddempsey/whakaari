@@ -1,14 +1,14 @@
-import os, sys, shutil
+import os, sys
 sys.path.insert(0, os.path.abspath('..'))
 from whakaari import *
-from datetime import timedelta, datetime
+from datetime import timedelta
 from functools import partial
 from multiprocessing import Pool
 from glob import glob
 import numpy as np
 from matplotlib import pyplot as plt
 from scipy.stats import skew
-import GPy, math
+import GPy
         
 # tsfresh and sklearn dump a lot of warnings - these are switched off below, but should be
 # switched back on when debugging

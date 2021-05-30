@@ -1063,7 +1063,7 @@ class ForecastModel(object):
         tf = self.tf_model if tf is None else datetimeify(tf)
         return self._load_data(ti, tf)
     def train(self, ti=None, tf=None, Nfts=20, Ncl=500, retrain=False, classifier="DT", random_seed=0,
-            drop_features=[], n_jobs=6, exclude_dates=[], use_only_features=[]):
+            drop_features=[], n_jobs=6, exclude_dates=[], use_only_features=[], method=0.75):
         """ Construct classifier models.
 
             Parameters:
@@ -1156,9 +1156,10 @@ class ForecastModel(object):
             mapper = p.imap
         else:
             mapper = map
-        f = partial(train_one_model, fM, ys, Nfts, self.modeldir, self.classifier, retrain, random_seed)
+        f = partial(train_one_model, fM, ys, Nfts, self.modeldir, self.classifier, retrain, random_seed, method)
 
         # train models with glorious progress bar
+        # f(0)
         for i, _ in enumerate(mapper(f, range(Ncl))):
             cf = (i+1)/Ncl
             print(f'building models: [{"#"*round(50*cf)+"-"*round(50*(1-cf))}] {100.*cf:.2f}%\r', end='') 
@@ -2030,11 +2031,11 @@ def update_geonet_data():
     rs = TremorData()
     rs.update()
 
-def train_one_model(fM, ys, Nfts, modeldir, classifier, retrain, random_seed, random_state):
+def train_one_model(fM, ys, Nfts, modeldir, classifier, retrain, random_seed, method, random_state):
     # undersample data
-    rus = RandomUnderSampler(0.75, random_state=random_state+random_seed)
+    rus = RandomUnderSampler(method, random_state=random_state+random_seed)
     fMt,yst = rus.fit_resample(fM,ys)
-    yst = pd.Series(yst, index=range(len(yst)))
+    yst = pd.Series(yst>0, index=range(len(yst)))
     fMt.index = yst.index
 
     # find significant features
