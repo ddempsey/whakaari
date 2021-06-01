@@ -49,35 +49,38 @@ class ForecastModelUnrest(ForecastModel):
             label[np.where((ts>u0)&(ts<u1))] = i+1
         return label
 
-def unrest_classification():
+def unrest_classification(u,e):
     data_streams = ['zsc2_rsamF', 'zsc2_mfF', 'zsc2_hfF','zsc2_dsarF']
     fm = ForecastModelUnrest(window=2., overlap=0.75, look_forward=2., data_streams=data_streams,
-        root='unrest', savefile_type='pkl', station='WIZ')   
+        root='unrest'.format(u,e), savefile_type='pkl', station='WIZ',
+            feature_dir=r'E:\whakaari\features')   
 
     # exclude final eruption and first unrest period
-    n_jobs = 1
-    te = fm.data.tes[4]
-    exclude_dates = [[te-_MONTH,te+_MONTH],fm.data.unrest[0]]
+    n_jobs = 8
+    te = fm.data.tes[e-1]
+    u0,u1 = fm.data.unrest[u-1]
+    exclude_dates = [[te-_MONTH,te+_MONTH],[u0-_MONTH,u1+_MONTH]]
 
     drop_features = ['linear_trend_timewise','agg_linear_trend','*attr_"imag"*','*attr_"real"*',
         '*attr_"angle"*']  
     freq_max = fm.dtw//fm.dt//4
     drop_features += ['*fft_coefficient__coeff_{:d}*'.format(i) for i in range(freq_max+1, 2*freq_max+2)]    
 
-    fm.train(drop_features=drop_features, retrain=False, Ncl=500, n_jobs=n_jobs,
+    fm.train(drop_features=drop_features, retrain=True, Ncl=500, n_jobs=n_jobs,
         exclude_dates=exclude_dates,  method='not minority')
 
-    # fm.hires_forecast(ti=te-2*fm.dtw-fm.dtf, tf=te+_MONTH/28., recalculate=True, 
-    #     save=r'{:s}/hires.png'.format(fm.plotdir), 
-    #     n_jobs=n_jobs, root=r'{:s}_hires'.format(fm.root), threshold=1.0)
+    fm.hires_forecast(ti=te-2*fm.dtw-fm.dtf, tf=te+_MONTH/28., recalculate=True, 
+        save=r'{:s}/eruption_u{:d}_e{:d}_hires.png'.format(fm.plotdir,u,e), 
+        n_jobs=n_jobs, root=r'{:s}_u{:d}_e{:d}_hires'.format(fm.root,u,e), threshold=1.0)
 
-    u1 = fm.data.unrest[0][-1]
-    fm.hires_forecast(ti=u1-_MONTH*0.75, tf=u1+_MONTH/4., recalculate=True, 
-        save=r'{:s}/unrest_hires.png'.format(fm.plotdir), 
-        n_jobs=n_jobs, root=r'{:s}_hires'.format(fm.root), threshold=1.0)
+    fm.hires_forecast(ti=u0-_MONTH/2., tf=u1+_MONTH/2., recalculate=True, 
+        save=r'{:s}/unrest_u{:d}_e{:d}_hires.png'.format(fm.plotdir,u,e), 
+        n_jobs=n_jobs, root=r'{:s}_u{:d}_hires'.format(fm.root,u), threshold=1.0)
 
 def main():
-    unrest_classification()
+    for u in range(1,4):
+        for e in range(1,6):
+            unrest_classification(u=u,e=e)
 
 if __name__ == "__main__":
     main()

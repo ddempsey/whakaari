@@ -121,7 +121,6 @@ def discriminability(root, data_streams):
     ax1_.set_ylabel('days')
     plt.savefig('{:s}_performance.png'.format(root),dpi=400)
 
-
 def model(root, data_streams):
     # assess reliability by cross validation on five eruptions
     for eruption in range(1,6):
@@ -129,7 +128,6 @@ def model(root, data_streams):
 
     # assess discriminability by high-resoultion simulation across dataset
     discriminability(root, data_streams)
-
 
 def main():
     # model 1: benchmark from 2020 Nat Comms paper
@@ -141,10 +139,8 @@ def main():
     # model(root='filtered',data_streams=data_streams)
     
     # model 3: model 2 with data standardisation
-    # data_streams = ['zsc_rsamF','zsc_mfF','zsc_hfF','zsc_dsarF']
-    # model(root='transformed',data_streams=data_streams)
     data_streams = ['zsc2_rsamF','zsc2_mfF','zsc2_hfF','zsc2_dsarF']
-    model(root='transformed2',data_streams=data_streams)
+    model(root='transformed',data_streams=data_streams)
 
     # model 4: WSRZ model with model 3 filling gaps
     # from uncertain_interpolation import model as model4

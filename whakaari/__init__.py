@@ -1537,8 +1537,29 @@ class ForecastModel(object):
         tmax = xlim[-1] 
         tf = tmax 
         t0 = tf.replace(hour=0, minute=0, second=0)
-        xts = [t0 - timedelta(days=i) for i in range(7)][::-1]
-        lxts = [xt.strftime('%d %b') for xt in xts]
+        dt = (tmax-tmin).total_seconds()
+        if dt < 10.*24*3600:
+            ndays = int(np.ceil(dt/(24*3600)))
+            xts = [t0 - timedelta(days=i) for i in range(ndays)][::-1]
+            lxts = [xt.strftime('%d %b') for xt in xts]
+        elif dt < 20.*24*3600:
+            ndays = int(np.ceil(dt/(24*3600))/2)
+            xts = [t0 - timedelta(days=2*i) for i in range(ndays)][::-1]
+            lxts = [xt.strftime('%d %b') for xt in xts]
+        elif dt < 70.*24*3600:
+            ndays = int(np.ceil(dt/(24*3600))/7)
+            xts = [t0 - timedelta(days=7*i) for i in range(ndays)][::-1]
+            lxts = [xt.strftime('%d %b') for xt in xts]
+        elif dt < 365.25*24*3600:
+            t0 = tf.replace(day=1, hour=0, minute=0, second=0)
+            nmonths = int(np.ceil(dt/(24*3600*365.25/12)))
+            xts = [t0 - timedelta(days=i*365.25/12) for i in range(nmonths)][::-1]
+            lxts = [xt.strftime('%b') for xt in xts]
+        elif dt < 2*365.25*24*3600:
+            t0 = tf.replace(day=1, hour=0, minute=0, second=0)
+            nmonths = int(np.ceil(dt/(24*3600*365.25/12))/2)
+            xts = [t0 - timedelta(days=2*i*365.25/12) for i in range(nmonths)][::-1]
+            lxts = [xt.strftime('%b %Y') for xt in xts]
         ax.set_xticks(xts)
         ax.set_xticklabels(lxts)
         
