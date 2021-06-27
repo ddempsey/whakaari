@@ -1,6 +1,6 @@
-import os, sys, traceback, smtplib, ssl, yagmail, shutil, argparse
+import os, sys, traceback, yagmail, shutil, argparse
 sys.path.insert(0, os.path.abspath('..'))
-from whakaari import TremorData, ForecastModel, to_nztimezone, datetimeify
+from whakaari import TremorData, ForecastModel, to_nztimezone, datetimeify, load_dataframe
 from datetime import timedelta, datetime
 from subprocess import Popen, PIPE
 from pathlib import Path
@@ -10,7 +10,8 @@ from time import sleep, time
 import pandas as pd
 import numpy as np
 import twitter
-import cProfile, pstats
+from functools import partial
+from dateutil.relativedelta import relativedelta
 
 # tsfresh and sklearn dump a lot of warnings - these are switched off below, but should be
 # switched back on when debugging
@@ -22,6 +23,10 @@ from sklearn.exceptions import FitFailedWarning
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=FitFailedWarning)
+
+# CHANGE THESE GLOBAL VARIABLES 
+THR = 0.85          # threshold to issue alarm
+TI = datetimeify('2021-05-15')      # date to start forecasting from
 
 class Alert(object):
     def __init__(self, mail_from, monitor_mail_to_file, alert_mail_to_file, keyfile):
@@ -84,12 +89,14 @@ class Alert(object):
                 self.post_open_alert()
     # Tweeting
     def post(self, msg, media):
+        if self.key is None:
+            return
         try:
             api = twitter.Api(consumer_key=self.key['API_key'],
                         consumer_secret=self.key['API_secret_key'],
                         access_token_key=self.key['token'],
                         access_token_secret=self.key['token_secret'])
-            status = api.PostUpdate(msg, media=media)
+            api.PostUpdate(msg, media=media)
         except:
             pass
     def post_no_alert(self, msg=-1, media=-1):
@@ -117,6 +124,8 @@ class Alert(object):
         self.post(msg, media)
     # Emailing
     def send_startup_email(self):
+        if any([var is None for var in [self.mail_from,self.monitor_mail_to]]):
+            return
         yag = yagmail.SMTP(self.mail_from)
         yag.send(to=self.monitor_mail_to,subject='starting up',contents='whakaari forecaster is starting up',attachments=None)
     def send_email_alerts(self):
@@ -130,8 +139,8 @@ class Alert(object):
             subject = "Whakaari Eruption Forecast: New alert"
             message = [
                 'Whakaari Eruption Forecast model issued a new alert for {:s} local time.'.format(self.time_local.strftime('%d %b %Y at %H:%M')),
-                'Alerts last 48-hours and will auto-extend if elevated activity persists.',
-                'Based on historical activity, the probability of an eruption occuring during an alert is about 10%.',
+                'Alerts last 48 hours and will auto-extend if elevated activity persists.',
+                'Based on historic performance, the probability of an eruption occuring during an alert is 8.2% in 48 hours.',
                 {yagmail.inline('./current_forecast.png'):'Forecast_{:s}.png'.format(self.time_local.strftime('%Y%m%d-%H%M%S'))},]
             attachment = None
             mail_to = self.alert_mail_to
@@ -156,6 +165,9 @@ class Alert(object):
             message = "All is well here. Have a great day."
             attachment = None
             mail_to = self.monitor_mail_to
+
+        if any([var is None for var in [self.mail_from,mail_to]]):
+            return
 
         yag = yagmail.SMTP(self.mail_from)
         yag.send(
@@ -300,14 +312,10 @@ def rebuild_hires_features():
         # forecast from beginning of training period at high resolution
         fm.hires_forecast(ti=datetimeify('2020-08-01'), tf=tf0+i*day, recalculate=False, n_jobs=1) 
         
-def update_forecast():
+def update_forecast_v1():
     ''' Update model forecast.
     '''
     try:
-        # constants
-        month = timedelta(days=365.25/12)
-        day = timedelta(days=1)
-            
         # pull the latest data from GeoNet
         td = TremorData(station='WIZ')
         td.update()
@@ -360,6 +368,212 @@ def update_forecast():
         fp.write('{:s}\n'.format(traceback.format_exc()))
         fp.close()
         return
+
+def update_forecast_v2():
+    ''' Update model forecast.
+    '''
+    try:
+        # pull the latest data from GeoNet
+        td = TremorData(station='WIZ')
+        td.update()
+    except Exception:
+        fp = open('update_geonet.err','w')
+        fp.write('{:s}\n'.format(traceback.format_exc()))
+        fp.close()
+        return
+
+    try:
+
+        # model from 2011 to present day (td.tf)
+        data_streams = ['zsc2_rsamF','zsc2_mfF','zsc2_hfF','zsc2_dsarF']
+        fm = ForecastModel(ti='2011-01-01', tf=td.tf, window=2, overlap=0.75, station='WIZ', 
+            look_forward=2, data_streams=data_streams, root='online_forecaster_WIZ',savefile_type='pkl')
+        
+        # The online forecaster is trained using all eruptions in the dataset. It only
+        # needs to be trained once, or again after a new eruption.
+        # (Hint: feature matrices can be copied from other models to avoid long recalculations
+        # providing they have the same window length and data streams. Copy and rename 
+        # to *root*_features.csv)
+        drop_features = ['linear_trend_timewise','agg_linear_trend']  
+        drop_features += ['*attr_"imag"*','*attr_"real"*','*attr_"angle"*']
+        freq_max = fm.dtw//fm.dt//4
+        drop_features += ['*fft_coefficient__coeff_{:d}*'.format(i) for i in range(freq_max+1, 2*freq_max+2)]
+        
+        fm.train(ti='2011-01-01', tf='2021-01-01', drop_features=drop_features, Ncl=500,
+            retrain=False, n_jobs=1)      
+        
+        # forecast from beginning of training period at high resolution
+        tf = datetime.utcnow()
+        ys = fm.hires_forecast(ti=TI, tf=fm.data.tf, recalculate=False, n_jobs=1)
+        
+        dashboard_v2(ys['consensus'], fm, 'current_forecast.png')
+
+        al = (ys['consensus'].values[ys.index>(tf-fm.dtf)] > THR)*1.
+        if len(al) == 0:
+            in_alert = -1
+        else:
+            in_alert = 1
+        with open('alert.csv', 'w') as fp:                
+            fp.write('{:d}\n'.format(in_alert))
+            
+    except Exception:
+        fp = open('run_forecast.err','w')
+        fp.write('{:s}\n'.format(traceback.format_exc()))
+        fp.close()
+        return
+
+def dashboard_v2(ys,fm,save):
+    # parameters
+    threshold = 0.85
+    
+    # set up figures and axes
+    f = plt.figure(figsize=(16,8))
+    ax1 = plt.axes([0.05, 0.55, 0.4, 0.36])
+    ax2 = plt.axes([0.05, 0.08, 0.4, 0.36])
+    ax3 = plt.axes([0.54, 0.55, 0.4, 0.36])
+    ax4 = plt.axes([0.63, 0.08, 0.3, 0.36])
+    axs = [ax1,ax2,ax3]
+    ax_s = [ax.twinx() for ax in axs]
+    
+    t = pd.to_datetime(ys.index.values)
+    rsam = fm.data.get_data(t[0], t[-1])['rsam']
+    t = np.array(to_nztimezone(t))
+    trsam = to_nztimezone(rsam.index)
+
+    cal = load_dataframe('online_WIZ_isotonic_calibrator.pkl')
+    pf = partial(lambda c,x : c.predict([x])[0] if not is_iterable(x) else c.predict(x), cal)
+    
+    ts = [t[-1], trsam[-1]]
+    tmax = np.max(ts)
+
+    # ax2.set_xlabel('Local time')
+    # ax3.set_xlabel('Local time')
+    y = ys.values       # model output
+    dy = fm._compute_CI(y)
+    p = pf(y)           # eruption probability (in 48-hours)
+    plo = pf(y-dy)           # confidence interval
+    phi = pf(y+dy)           
+    pc = integrate_probability(p, 48*6)
+    p0 = pf(0.)         # 'normal' probability
+        
+    lims = [[t[0], t[-1]],[tmax-timedelta(days=7), tmax]]
+    for ax, ax_, lim in zip([ax1,ax2], ax_s, lims):
+        # plot RSAM
+        ax_.plot(trsam, rsam.values*1.e-3, 'k-', lw=0.5)
+        ax_.set_ylabel('RSAM [$\mu$m s$^{-1}$]')
+        ax_.set_ylim([0,5])
+        ax_.yaxis.set_label_position("left")
+        ax_.yaxis.tick_left()
+
+        # plot model output
+        ax.fill_between(t, y-dy, y+dy, color='c', zorder=0, linewidth=0., alpha=0.5)
+        ax.plot(t, y, 'c-', label='model', zorder=4, lw=0.5)
+        ax.set_ylim([0, 1.05])
+        ax.set_yticks([0,0.25,0.50,0.75,1.00])
+        ax.set_ylabel('model output')
+        ax.yaxis.set_label_position("right")
+        ax.yaxis.tick_right()
+        tks, tls = get_ticks(*lim)
+        ax.set_xticks(tks)
+        ax.set_xticklabels(tls)
+    
+        # consensus threshold
+        ax.axhline(threshold, color='k', linestyle=':', label='alarm trigger', zorder=4)
+
+        # modelled alert
+        for tii,yi in zip(t, y):
+            if yi > threshold:
+                ax.fill_between([tii, tii+fm.dtf], [0,0], [100,100], color='y', zorder=3)
+                
+        ax.fill_between([], [], [], color='y', label='alarm period')
+        ax.plot([],[],'k-', lw=0.5, label='RSAM')
+        ax.plot([],[],'b-', lw=0.5, label='instantaneous\nprobability')
+        ax.plot([],[],'b-', lw=2, label='time-averaged\nprobability')
+        ax.set_xlim(lim)
+        
+    # plot probability trace
+    ax_2 = ax.twinx()
+    ax_2.spines['right'].set_position(('outward', 60))
+    ax_2.set_frame_on(True)
+    ax_2.patch.set_visible(False)
+    ax_2.yaxis.set_label_position("right")
+    ax_2.set_ylabel('48-hr eruption probability [%]')
+    
+    ax_3 = ax.twinx()
+    ax_3.spines['right'].set_position(('outward', 120))
+    ax_3.set_frame_on(True)
+    ax_3.patch.set_visible(False)
+    ax_3.yaxis.set_label_position("right")
+    ax_3.set_ylabel('likelihood relative to \'normal\'\n(probability gain)')
+
+    inds = np.where((t>=lim[0])&(t<=lim[-1]))
+    ti = t[inds]
+    pi = p[inds]
+    pci = pc[inds]
+    ploi = plo[inds]
+    phii = phi[inds]
+    ax_2.fill_between(ti, ploi*100, phii*100, color='b', zorder=0, linewidth=0., alpha=0.5)
+    ax_2.plot(ti, pi*100, 'b-', lw=0.5)
+    ax_3.set_ylim(ax_2.get_ylim()/(100*p0))
+
+    ax.yaxis.set_label_position("right")
+    ax.yaxis.tick_right()
+    ax_.set_xlim(lim)
+    ax_2.set_xlim(lim)
+    ax_3.set_xlim(lim)
+    ax.set_xticks(tks)
+    ax.set_xticklabels(tls)
+    ax.set_xlim(lim)
+    
+    ax1.legend(loc=1, ncol=3)
+
+    # plot time-averaged probability
+    ax_s[2].plot(trsam, rsam.values, 'k-', lw=0.5)
+    ax_s[2].set_ylabel('RSAM [$\mu$m s$^{-1}$]')
+    ax_s[2].set_ylim([0,5])
+    ax_s[2].yaxis.set_label_position("left")
+    ax_s[2].yaxis.tick_left()
+    ax_s[2].set_xlim(lim)
+
+    ax3.fill_between(ti, ploi*100, phii*100, color='b', zorder=0, linewidth=0., alpha=0.5)
+    ax3.plot(ti, pi*100, 'b-', lw=0.5)
+    ax3.plot(ti, pci*100, 'b-', lw=2)
+    ax3.set_ylabel('48-hr eruption probability [%]')
+    ax3.yaxis.set_label_position("right")
+    ax3.yaxis.tick_right()
+    ax3.set_xticks(tks)
+    ax3.set_xticklabels(tls)
+    ax3.set_xlim(lim)
+
+    ax4.set_xlim([0,1]); ax4.set_xticks([])
+    ax4.set_ylim([0,1]); ax4.set_yticks([])
+
+    ax4_str = [
+        'ALARMS',
+        'alarm threshold = 0.85',
+        '48-hr eruption probability INSIDE alarm = 7.4%',
+        '48-hr eruption probability OUTSIDE alarm = 0.06%',
+        'alarm probability gain = x134',
+        'average alarm length = 6.5 days',
+        'probability of eruption inside alarm = 24%',
+        'long-term alarm duration = 4.3%',
+        '',
+        'PROBABILITY',
+        'instantaneous 48-hr eruption probability = {:3.2f}%'.format(p[-1]*100),
+        'time to exceed 10$^{-4}$ eruption risk'+' = {:2.1f} hours'.format(48*np.log(1.-1.e-4)/np.log(1.-p[-1])),
+        'time-averaged 48-hr eruption probability = {:3.2f}%'.format(pc[-1]*100),
+    ]
+    
+    ax4.annotate('\n'.join(ax4_str),(0.1,0.5), ha='left', va='center')
+    ax4.axis('off')
+   
+    ax1.set_title('Historic Forecast')
+    ax2.set_title('7-day Forecast')
+    ax3.set_title('Probability')
+    # ax4.set_title('Risk calculations')
+
+    plt.savefig(save, dpi=400)
+    plt.close(f)
 
 def plot_dashboard(ys,ys0,fm,fm0,save):
     # parameters
@@ -596,15 +810,32 @@ def clean():
     _ = [os.remove(fl) for fl in fls if os.path.isfile(fl)]
 
 def Key(keyfile):
+    if keyfile is None:
+        return None
     with open(keyfile, 'r') as fp:
         lns = fp.readlines()
     return dict([ln.strip().split(':') for ln in lns]) 
 
 def get_emails(from_file, prev=None):
+    ''' Parse email addresses from file.
+
+        Parameters:
+        -----------
+        from_file : str
+            path to file with addresses
+
+        Returns:
+        --------
+        monitor_mail_to : list
+            email addresses (strings) in file
+    '''
+    if from_file is None: 
+        return None
     try:
         with open(from_file, 'r') as fp:
             lns = fp.readlines()
         monitor_mail_to = [ln.strip() for ln in lns]
+        return monitor_mail_to
     except Exception as e:
         if prev is not None:
             fp = open('.'.join(from_file.split('.')[:-1])+'.err','w')
@@ -614,15 +845,65 @@ def get_emails(from_file, prev=None):
         else:
             raise e
 
+def integrate_probability(p, N):
+    pi = np.concatenate([np.zeros(N)+p[0], p])
+    Np = len(pi)
+    return np.mean([(1.-i/N)*pi[N-i:Np-i] for i in range(N)], axis=0)*2.
+
+def get_ticks(tmin, tmax):
+    
+    dt = (tmax-tmin).total_seconds()
+    if dt < 10.*24*3600:
+        ndays = int(np.ceil(dt/(24*3600)))+1
+        t0 = tmax.replace(hour=0, minute=0, second=0)
+        xts = [t0 - timedelta(days=i) for i in range(ndays)][::-1]
+        lxts = [xt.strftime('%d %b').lstrip('0') for xt in xts]
+    elif dt < 20.*24*3600:
+        ndays = int(np.ceil(dt/(24*3600))/2)+1
+        t0 = tmax.replace(hour=0, minute=0, second=0)
+        xts = [t0 - timedelta(days=2*i) for i in range(ndays)][::-1]
+        lxts = [xt.strftime('%d %b').lstrip('0') for xt in xts]
+    elif dt < 70.*24*3600:
+        ndays = int(np.ceil(dt/(24*3600))/7)
+        t0 = tmax.replace(hour=0, minute=0, second=0)
+        xts = [t0 - timedelta(days=7*i) for i in range(ndays)][::-1]
+        lxts = [xt.strftime('%d %b').lstrip('0') for xt in xts]
+    elif dt < 365.25*24*3600:
+        t0 = tmax.replace(day=1, hour=0, minute=0, second=0)
+        du = relativedelta(months=2)
+        nmonths = int(np.ceil(dt/(24*3600*365.25/12)))
+        xts = [t0 - i*du for i in range(nmonths)][::-1]
+        lxts = [xt.strftime('%b') for xt in xts]
+    elif dt < 2*365.25*24*3600:
+        t0 = tmax.replace(day=1, hour=0, minute=0, second=0)
+        du = relativedelta(months=2)
+        nmonths = int(np.ceil(dt/(24*3600*365.25/12))/2)+1
+        xts = [t0 - i*du for i in range(nmonths)][::-1]
+        lxts = [xt.strftime('%b %Y') if xt.month == 1 else xt.strftime('%b') for xt in xts]
+    return xts, lxts
+
+def is_iterable(x):
+    try:
+        [_ for _ in x]
+        return True
+    except TypeError:
+        return False
+
 if __name__ == "__main__":  
-  # set parameters
+    ''' For real-time operation, enter at the command line:
+
+        > python controller.py
+
+        Other options for experts.
+    '''
+    # set parameters (set to None to turn of emailing)
     keyfile = r'/home/ubuntu/twitter_keys.txt'
     mail_from = 'noreply.whakaariforecaster@gmail.com'
     
-    # heartbeat and error raising emails
+    # heartbeat and error raising emails (set to None to turn of emailing)
     monitor_mail_to_file = r'/home/ubuntu/whakaari_monitor_mail_to.txt'
     
-    # forecast alert emails
+    # forecast alert emails (set to None to turn of emailing)
     alert_mail_to_file = r'/home/ubuntu/whakaari_alert_mail_to.txt'
     
     parser = argparse.ArgumentParser()
@@ -632,13 +913,13 @@ if __name__ == "__main__":
         help="flag indicating how controller is to run")
     args = parser.parse_args()
     if args.m == 'controller':
-        controller = Controller(mail_from, monitor_mail_to_file, alert_mail_to_file, keyfile)
+        controller = Controller(mail_from, monitor_mail_to_file, alert_mail_to_file, keyfile, test=True)
         controller.run()
     elif args.m == 'controller-test':
-        controller = Controller(mail_from, monitor_mail_to, alert_mail_to, keyfile, test=True)
+        controller = Controller(None, None, None, None, test=True)
         controller.run()
     elif args.m == 'update_forecast':
-        update_forecast()
+        update_forecast_v2()
     elif args.m == 'update_forecast_test':
         update_forecast_test()
     elif args.m == 'plot_date':

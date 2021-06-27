@@ -65,6 +65,11 @@ makedir = lambda name: os.makedirs(name, exist_ok=True)
 class TremorData(object):
     """ Object to manage acquisition and processing of seismic data.
         
+        Constructor arguments:
+        ----------------------
+        station : str
+            Name of station to download seismic data from.
+
         Attributes:
         -----------
         df : pandas.DataFrame
@@ -77,7 +82,7 @@ class TremorData(object):
         Methods:
         --------
         update
-            Obtain latest GeoNet data.
+            Download latest GeoNet data.
         get_data
             Return tremor data in requested date range.
         plot
@@ -134,8 +139,9 @@ class TremorData(object):
             ------
             Naming convention is *transform_type*_*data_type*, so for example
             'inv_mf' is "inverse medium frequency or 1/mf. Other transforms are
-            'diff' (derivative), 'log' (base 10 logarithm) and 'stft' (short-time
-            Fourier transform averaged across 40-45 periods).
+            'diff' (derivative), 'log' (base 10 logarithm), 'stft' (short-time
+            Fourier transform averaged across 40-45 periods), 'zsc' (z-score), 
+            'zsc2' (z-score with 2-sample moving minimum).
         """
         for col in self.df.columns:
             if col is 'time': continue
@@ -201,7 +207,6 @@ class TremorData(object):
 
                 self.df['zsc2_'+col] = self.df['zsc2_'+col].rolling(window=2).min()
                 self.df['zsc2_'+col][0] = self.df['zsc2_'+col][1]
-             
     def _is_eruption_in(self, days, from_time):
         """ Binary classification of eruption imminence.
 
@@ -223,7 +228,7 @@ class TremorData(object):
                 return 1.
         return 0.
     def update(self, ti=None, tf=None, n_jobs = None):
-        """ Obtain latest GeoNet data.
+        """ Download latest GeoNet data.
 
             Parameters:
             -----------
@@ -231,6 +236,8 @@ class TremorData(object):
                 First date to retrieve data (default is first date data available).
             tf : str, datetime.datetime
                 Last date to retrieve data (default is current date).
+            n_jobs : int
+                Number of CPUs to use.
         """
         if failedobspyimport:
             raise ImportError('ObsPy import failed, cannot update data.')
@@ -312,77 +319,7 @@ class TremorData(object):
         # subset data
         inds = (self.df.index>=ti)&(self.df.index<tf)
         return self.df.loc[inds]
-    def plot(self, data_streams='rsam', save='tremor_data.png', ylim=[0, 5000]):
-        """ Plot tremor data.
-
-            Parameters:
-            -----------
-            save : str
-                Name of file to save output.
-            data_streams : str, list
-                String or list of strings indicating which data or transforms to plot (see below). 
-            ylim : list
-                Two-element list indicating y-axis limits for plotting.
-                
-            data type options:
-            ------------------
-            rsam - 2 to 5 Hz (Real-time Seismic-Amplitude Measurement)
-            mf - 4.5 to 8 Hz (medium frequency)
-            hf - 8 to 16 Hz (high frequency)
-            dsar - ratio of mf to hf, rolling median over 180 days
-
-            transform options:
-            ------------------
-            inv - inverse, i.e., 1/
-            diff - finite difference derivative
-            log - base 10 logarithm
-            stft - short-time Fourier transform at 40-45 min period
-
-            Example:
-            --------
-            data_streams = ['dsar', 'diff_hf'] will plot the DSAR signal and the derivative of the HF signal.
-        """
-        if type(data_streams) is str:
-            data_streams = [data_streams,]
-        if any(['_' in ds for ds in data_streams]):
-            self._compute_transforms()
-
-        # set up figures and axes
-        f = plt.figure(figsize=(24,15))
-        N = 10
-        dy1,dy2 = 0.05, 0.05
-        dy3 = (1.-dy1-(N//2)*dy2)/(N//2)
-        dx1,dx2 = 0.43,0.03
-        axs = [plt.axes([0.05+(1-i//(N/2))*(dx1+dx2), dy1+(i%(N/2))*(dy2+dy3), dx1, dy3]) for i in range(N)][::-1]
-        
-        for i,ax in enumerate(axs):
-            ti,tf = [datetime.strptime('{:d}-01-01 00:00:00'.format(2011+i), '%Y-%m-%d %H:%M:%S'),
-                datetime.strptime('{:d}-01-01 00:00:00'.format(2012+i), '%Y-%m-%d %H:%M:%S')]
-            ax.set_xlim([ti,tf])
-            ax.text(0.01,0.95,'{:4d}'.format(2011+i), transform=ax.transAxes, va='top', ha='left', size=16)
-            ax.set_ylim(ylim)
-            
-        # plot data for each year
-        data = self.get_data()
-        xi = datetime(year=1,month=1,day=1,hour=0,minute=0,second=0)
-        cols = ['c','m','y','g',[0.5,0.5,0.5],[0.75,0.75,0.75]]
-        for i,ax in enumerate(axs):
-            if i//(N/2) == 0:
-                ax.set_ylabel('data [nm/s]')
-            else:
-                ax.set_yticklabels([])
-            x0,x1 =[xi+timedelta(days=xl)-_DAY for xl in ax.get_xlim()]
-            inds = (data.index>=x0)&(data.index<=x1)
-            for data_stream, col in zip(data_streams,cols):
-                ax.plot(data.index[inds], data[data_stream].loc[inds], '-', color=col, label=data_stream)
-            
-            for te in self.tes:
-                ax.axvline(te, color='k', linestyle='--', linewidth=2)
-            ax.axvline(te, color='k', linestyle='--', linewidth=2, label='eruption')
-        axs[-1].legend()
-        
-        plt.savefig(save, dpi=400)
-
+    
 class ForecastModel(object):
     """ Object for train and running forecast models.
         
@@ -394,6 +331,14 @@ class ForecastModel(object):
             Fraction of overlap between adjacent windows. Set this to 1. for overlap of entire window minus 1 data point.
         look_forward : float
             Length of look-forward in days.
+        exclude_dates : list
+            List of datetime pairs to be dropped.
+        station : str
+            Seismic station providing data for modelling.
+        feature_root : str
+            Root for feature naming.
+        feature_dir : str
+            Directory to save feature matrices.
         ti : str, datetime.datetime
             Beginning of analysis period. If not given, will default to beginning of tremor data.
         tf : str, datetime.datetime
@@ -473,6 +418,8 @@ class ForecastModel(object):
             Create overlapping data windows for feature extraction.
         _extract_features
             Extract features from windowed data.
+        _extract_featuresX
+            Abstracts key feature extraction steps from bookkeeping in _extract_features
         _get_label
             Compute label vector.
         _load_data
@@ -493,8 +440,12 @@ class ForecastModel(object):
             Use classifier models to forecast eruption likelihood.
         hires_forecast
             Construct forecast at resolution of data.
+        _compute_CI
+            Calculate confidence interval on model output.
         plot_forecast
             Plot model forecast.
+        get_performance
+            Compute quality measures of a forecast.
         plot_accuracy
             Plot performance metrics for model.
         plot_features
@@ -503,8 +454,7 @@ class ForecastModel(object):
             Corner plot of feature correlation.
     """
     def __init__(self, window, overlap, look_forward, exclude_dates=[], station='WIZ', ti=None, tf=None, 
-        data_streams=['rsam','mf','hf','dsar'], root=None, savefile_type='pkl', feature_root=None, 
-        feature_dir=None):
+        data_streams=['rsam','mf','hf','dsar'], root=None, savefile_type='pkl', feature_root=None, feature_dir=None):
         self.window = window
         self.overlap = overlap
         self.station = station
@@ -633,6 +583,10 @@ class ForecastModel(object):
                 End of first window.
             tf : datetime.datetime
                 End of last window.
+            ds : str
+                Data-stream to compute features for.
+            yr : int
+                Year to compute features for. If None and hires, recursion will activate.
 
             Returns:
             --------
@@ -773,6 +727,8 @@ class ForecastModel(object):
         print('{:s} feature extraction {:s} to {:s}'.format(df.columns[0], t0.strftime('%Y-%m-%d'), t1.strftime('%Y-%m-%d')))
         return extract_features(df, **kw)
     def _ftfl(self,ds,yr):
+        ''' Feature file name by data stream and year.
+        '''
         ftfl = ds
         if self.feature_root: 
             ftfl += '_'+self.feature_root     
@@ -802,6 +758,8 @@ class ForecastModel(object):
                 Beginning of period to load features.
             tf : str, datetime
                 End of period to load features.
+            yr : int
+                Year to load data for. If None and hires, recursion will activate.
 
             Returns:
             --------
@@ -1091,6 +1049,11 @@ class ForecastModel(object):
                 List of time windows to exclude during training. Facilitates dropping of eruption 
                 windows within analysis period. E.g., exclude_dates = [['2012-06-01','2012-08-01'],
                 ['2015-01-01','2016-01-01']] will drop Jun-Aug 2012 and 2015-2016 from analysis.
+            use_only_features : list
+                For specifying particular features to train with.
+            method : float, str
+                Passed to RandomUndersampler. If float, proportion of minor class in final sampling (two label).
+                If str, method used for multi-label undersampling.
 
             Classifier options:
             -------------------
@@ -1187,7 +1150,8 @@ class ForecastModel(object):
                 Optionally pass path to pre-trained model directory in 'models'.
             n_jobs : int
                 Number of cores to use.
-
+            yr : int
+                Year to produce forecast for. If None and hires, recursion will be activated.
             Returns:
             --------
             consensus : pd.DataFrame
@@ -1218,9 +1182,6 @@ class ForecastModel(object):
         yr_str = '_{:d}'.format(yr) if yr is not None else ''
         confl = '{:s}/consensus{:s}'.format(self.preddir,'{:s}.{:s}'.format(yr_str, self.savefile_type))
         
-        if os.path.isfile(confl) and not recalculate:
-            return load_dataframe(confl)
-
         #
         if n_jobs is not None: 
             self.n_jobs = n_jobs 
@@ -1232,14 +1193,12 @@ class ForecastModel(object):
         if self.ti_forecast - self.dtw < self.data.ti:
             self.ti_forecast = self.data.ti+self.dtw
 
-        loadFeatureMatrix = True
-
         model_path = self.modeldir + os.sep
         if use_model is not None:
             self._detect_model()
             model_path = self._use_model+os.sep
             
-        model,classifier = get_classifier(self.classifier)
+        model = get_classifier(self.classifier)[0]
 
         # logic to determine which models need to be run and which to be 
         # read from disk
@@ -1290,7 +1249,7 @@ class ForecastModel(object):
                 mapper = p.imap
             else:
                 mapper = map
-            f = partial(predict_one_model, fM, model_path, pref)
+            f = partial(predict_one_model, fM, model_path)
 
             # run models with glorious progress bar
             f(run_predictions[0])
@@ -1377,15 +1336,15 @@ class ForecastModel(object):
     def _compute_CI(self, y):
         """ Computes a 95% confidence interval of the model consensus.
 
-        Parameters:
-        -----------
-        y : numpy.array
-            Model consensus returned by ForecastModel.forecast.
-        
-        Returns:
-        --------
-        ci : numpy.array
-            95% confidence interval of the model consensus
+            Parameters:
+            -----------
+            y : numpy.array
+                Model consensus returned by ForecastModel.forecast.
+            
+            Returns:
+            --------
+            ci : numpy.array
+                95% confidence interval of the model consensus
         """
         ci = 1.96*(np.sqrt(y*(1-y)/self.Ncl))
         return ci
@@ -1571,6 +1530,37 @@ class ForecastModel(object):
         plt.savefig(save, dpi=400)
         plt.close(f)
     def get_performance(self, t, y, thresholds, ialert=None, dti=None):
+        ''' Compute performance metrics for a forecast.
+
+            Parameters:
+            -----------
+            t : array-like
+                Time vector corresponding to model consensus.
+            y : array-like
+                Model consensus.
+            thresholds: float
+                Consensus values above which an alert is issued.
+            ialert : int
+                Number of data windows spanning an alert period.
+            dti : datetime.timedelta
+                Length of window overlap.
+
+            Returns:
+            --------
+            FP : int
+                Number of false positives at each threshold level.
+            FN : int
+                Number of false negatves at each threshold level.
+            TP : int
+                Number of true positives at each threshold level.
+            TN : int
+                Number of true negatives at each threshold level.
+            dur : float
+                Proportion of time spent inside an alert.
+            MCC : float
+                Matthew's correlation coefficient.
+
+        '''
         # time series
         makedir(self.preddir)
         label_file = self.preddir+'/labels.pkl'
@@ -1797,6 +1787,8 @@ class ForecastModel(object):
         plt.close(fig)
 
 def save_dataframe(df, fl, index=True, index_label=None):
+    ''' helper function for saving dataframes
+    '''
     if fl.endswith('.csv'):
         df.to_csv(fl, index=index, index_label=index_label)
     elif fl.endswith('.pkl'):
@@ -1809,6 +1801,8 @@ def save_dataframe(df, fl, index=True, index_label=None):
 
 def load_dataframe(fl, index_col=None, parse_dates=False, usecols=None, infer_datetime_format=False, 
     nrows=None, header='infer', skiprows=None):
+    ''' helper function for loading dataframes
+    '''
     if fl.endswith('.csv'):
         df = pd.read_csv(fl, index_col=index_col, parse_dates=parse_dates, usecols=usecols, infer_datetime_format=infer_datetime_format,
             nrows=nrows, header=header, skiprows=skiprows)
@@ -2003,6 +1997,8 @@ def get_data_for_day(i,t0,station):
     save_dataframe(df, '_tmp/_tmp_fl_{:05d}.csv'.format(i), index=True, index_label='time')
 
 def wrapped_indices(maxIdx, f, subDomainRange, N):
+    ''' helper function for computing filtering masks
+    '''
     startIdx = int(maxIdx-np.floor(f*subDomainRange)) # Compute the index of the domain where the subdomain centered on the peak begins
     endIdx = startIdx+subDomainRange # Find the end index of the subdomain
     if endIdx >= N: # If end index exceeds data range
@@ -2020,19 +2016,19 @@ def wrapped_indices(maxIdx, f, subDomainRange, N):
 def outlierDetection(data, outlier_degree=0.5):
     """ Determines whether a given data interval requires earthquake filtering
 
-    Parameters:
-    -----------
-    data : list
-        10 minute interval of a processed datastream (rsam, mf, hf, mfd, hfd).
-    outlier_degree : float
-        exponent (base 10) which determines the Z-score required to be considered an outlier.
-    
-    Returns:
-    --------
-    outlier : boolean
-        Is the maximum of the data considered an outlier?
-    maxIdx : int
-        Index of the maximum of the data
+        Parameters:
+        -----------
+        data : list
+            10 minute interval of a processed datastream (rsam, mf, hf, mfd, hfd).
+        outlier_degree : float
+            exponent (base 10) which determines the Z-score required to be considered an outlier.
+        
+        Returns:
+        --------
+        outlier : boolean
+            Is the maximum of the data considered an outlier?
+        maxIdx : int
+            Index of the maximum of the data
     """
     mean = np.mean(data)
     std = np.std(data)
@@ -2053,6 +2049,8 @@ def update_geonet_data():
     rs.update()
 
 def train_one_model(fM, ys, Nfts, modeldir, classifier, retrain, random_seed, method, random_state):
+    ''' helper function for parallelising model training
+    '''
     # undersample data
     rus = RandomUnderSampler(method, random_state=random_state+random_seed)
     fMt,yst = rus.fit_resample(fM,ys)
@@ -2084,7 +2082,9 @@ def train_one_model(fM, ys, Nfts, modeldir, classifier, retrain, random_seed, me
     model_cv.fit(fMt,yst)
     _ = joblib.dump(model_cv.best_estimator_, fl, compress=3)
 
-def predict_one_model(fM, model_path, pref, flp):
+def predict_one_model(fM, model_path, flp):
+    ''' helper function to parallelise model forecasting
+    '''
     flp,fl = flp
 
     if os.path.isfile(fl):

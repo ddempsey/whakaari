@@ -1,7 +1,7 @@
 
 import os, sys
 sys.path.insert(0, os.path.abspath('..'))
-from whakaari import ForecastModel, TremorData
+from whakaari import ForecastModel, TremorData, datetimeify
 from datetime import timedelta
 
 # tsfresh and sklearn dump a lot of warnings - these are switched off below, but should be
@@ -22,9 +22,27 @@ from matplotlib import pyplot as plt
 _MONTH = timedelta(days=365.25/12)
 FEATURE_DIR = r'E:\whakaari\features'
 
-def reliability(root, data_streams, eruption=1):
+def evaluation():
     # setup forecast model
-    n_jobs = 4  
+    n_jobs = 8  
+    td = TremorData()
+    td.update()
+    data_streams = ['rsam','mf','hf','dsar']
+    fm = ForecastModel(window=2., overlap=0.75, look_forward=2., data_streams=data_streams, 
+        savefile_type='pkl', station='WIZ', feature_dir=FEATURE_DIR)   
+
+    # train a model with all eruptions
+    drop_features = ['linear_trend_timewise','agg_linear_trend']  
+    fm.train(tf='2020-01-01', drop_features=drop_features, retrain=False, Ncl=500, n_jobs=n_jobs)        
+    
+    # test the model by constructing a hires forecast for excluded eruption
+    ys = fm.hires_forecast(ti=datetimeify('2020-02-01'), tf = fm.data.df.index[-1], recalculate=True, 
+        save=r'{:s}/evaluation_hires.png'.format(fm.plotdir), 
+        n_jobs=n_jobs, root=r'benchmark_e0_hires'.format(fm.root), threshold=0.8)
+
+def reliability(root, data_streams, eruption, Ncl):
+    # setup forecast model
+    n_jobs = 8 
     td = TremorData()
     td.update()
     fm = ForecastModel(window=2., overlap=0.75, look_forward=2., data_streams=data_streams,
@@ -34,18 +52,22 @@ def reliability(root, data_streams, eruption=1):
     # train-test split on five eruptions to compute model confidence of an eruption
         # remove duplicate linear features (because correlated), unhelpful fourier compoents
         # and fourier harmonics too close to Nyquist
-    drop_features = ['linear_trend_timewise','agg_linear_trend','*attr_"imag"*','*attr_"real"*',
-        '*attr_"angle"*']  
-    freq_max = fm.dtw//fm.dt//4
-    drop_features += ['*fft_coefficient__coeff_{:d}*'.format(i) for i in range(freq_max+1, 2*freq_max+2)]
-
+    drop_features = ['linear_trend_timewise','agg_linear_trend']  
+    if root is not 'benchmark':
+        drop_features += ['*attr_"imag"*','*attr_"real"*','*attr_"angle"*']
+        freq_max = fm.dtw//fm.dt//4
+        drop_features += ['*fft_coefficient__coeff_{:d}*'.format(i) for i in range(freq_max+1, 2*freq_max+2)]
+    
     # train a model with data from that eruption excluded
     te = fm.data.tes[eruption-1]
     exclude_dates = [[te-_MONTH, te+_MONTH]]
-    fm.train(drop_features=drop_features, retrain=True, Ncl=500, n_jobs=n_jobs, exclude_dates=exclude_dates)        
+    fm.train(drop_features=drop_features, retrain=True, Ncl=Ncl, n_jobs=n_jobs, exclude_dates=exclude_dates)        
     
     # test the model by constructing a hires forecast for excluded eruption
-    ys = fm.hires_forecast(ti=te-2*fm.dtw-fm.dtf, tf=te+_MONTH/28., recalculate=True, 
+    tf = te+_MONTH/28.
+    if eruption == 3:
+        tf = te+_MONTH/28.*15
+    ys = fm.hires_forecast(ti=te-2*fm.dtw-fm.dtf, tf=tf, recalculate=True, 
         save=r'{:s}/hires.png'.format(fm.plotdir), 
         n_jobs=n_jobs, root=r'{:s}_hires'.format(fm.root), threshold=1.0)
 
@@ -58,7 +80,7 @@ def reliability(root, data_streams, eruption=1):
     with open(r'{:s}/confidence.txt'.format(fm.plotdir), 'w') as fp:
         fp.write('{:4.3f}'.format(conf))
 
-def discriminability(root, data_streams):
+def discriminability(root, data_streams, Ncl):
     # setup forecast model
     n_jobs = 8
     fm = ForecastModel(window=2., overlap=0.75, look_forward=2., data_streams=data_streams,
@@ -68,13 +90,14 @@ def discriminability(root, data_streams):
 
     # remove duplicate linear features (because correlated), unhelpful fourier compoents
     # and fourier harmonics too close to Nyquist
-    drop_features = ['linear_trend_timewise','agg_linear_trend','*attr_"imag"*','*attr_"real"*',
-        '*attr_"angle"*']  
-    freq_max = fm.dtw//fm.dt//4
-    drop_features += ['*fft_coefficient__coeff_{:d}*'.format(i) for i in range(freq_max+1, 2*freq_max+2)]    
-
+    drop_features = ['linear_trend_timewise','agg_linear_trend']  
+    if root is not 'benchmark':
+        drop_features += ['*attr_"imag"*','*attr_"real"*','*attr_"angle"*']
+        freq_max = fm.dtw//fm.dt//4
+        drop_features += ['*fft_coefficient__coeff_{:d}*'.format(i) for i in range(freq_max+1, 2*freq_max+2)]
+    
     # construct hires model over entire dataset to compute false alarm rate
-    fm.train(drop_features=drop_features, retrain=False, Ncl=500, n_jobs=n_jobs)        
+    fm.train(drop_features=drop_features, retrain=False, Ncl=Ncl, n_jobs=n_jobs)        
     
     # forecast over whole dataset
     ys = fm.hires_forecast(ti=fm.ti_train, tf=fm.tf_train, recalculate=False, 
@@ -121,30 +144,29 @@ def discriminability(root, data_streams):
     ax1_.set_ylabel('days')
     plt.savefig('{:s}_performance.png'.format(root),dpi=400)
 
-def model(root, data_streams):
+def model(root, data_streams, Ncl=100):
     # assess reliability by cross validation on five eruptions
     for eruption in range(1,6):
-        reliability(root, data_streams, eruption)
+        reliability(root, data_streams, eruption, Ncl)
 
     # assess discriminability by high-resoultion simulation across dataset
-    discriminability(root, data_streams)
+    discriminability(root, data_streams, Ncl)
 
 def main():
-    # model 1: benchmark from 2020 Nat Comms paper
-    # data_streams = ['rsam','mf','hf','dsar']
-    # model(root='benchmark',data_streams=data_streams)
+    # model 0: evaluation of operational forecaster over 18 months
+    evaluation()
 
-    # model 2: model 1 with regional earthquakes filtered
-    # data_streams = ['rsamF','mfF','hfF','dsarF']
-    # model(root='filtered',data_streams=data_streams)
+    # model 1: benchmark from 2020 Nat Comms paper (100 classifiers)
+    data_streams = ['rsam','mf','hf','dsar']
+    model('benchmark', data_streams, Ncl=100)
+
+    # model 2: model 1 with regional earthquakes filtered (500 classifiers)
+    data_streams = ['rsamF','mfF','hfF','dsarF']
+    model(root='filtered',data_streams=data_streams, Ncl=500)
     
-    # model 3: model 2 with data standardisation
+    # model 3: model 2 with data standardisation (500 classifiers)
     data_streams = ['zsc2_rsamF','zsc2_mfF','zsc2_hfF','zsc2_dsarF']
-    model(root='transformed',data_streams=data_streams)
-
-    # model 4: WSRZ model with model 3 filling gaps
-    # from uncertain_interpolation import model as model4
-    # model4()
+    model(root='transformed2',data_streams=data_streams, Ncl=500)
 
 if __name__ == "__main__":
     main()

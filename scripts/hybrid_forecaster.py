@@ -628,11 +628,10 @@ def get_hybrid_feature_matrix(fM, i):
 
 def main():
     # build and run hybrid forecast model
-    # for i in [1, 3, 4]:
-    #     hybrid_forecaster(i)   
+    for i in [1, 3, 4]:
+        hybrid_forecaster(i)   
 
-    #hybrid_falsealarms()
-    print('hi')
+    hybrid_falsealarms()
 
 if __name__ == "__main__":
     main()
