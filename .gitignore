@@ -6,6 +6,7 @@ predictions/
 plots/
 controller/
 scripts/*.pkl
+!scripts/online_WIZ_isotonic_calibrator.pkl
 scripts/posteriors/
 _tmp/
 .vscode/
