@@ -100,7 +100,7 @@ class Alert(object):
         except:
             pass
     def post_no_alert(self, msg=-1, media=-1):
-        if msg ==-1: msg = 'No alert.'
+        if msg ==-1: msg = 'No alarm. The probability of an eruption is 0.06% (about 1 in 2000) over the next 48 hours.'
         if media ==-1: media = 'current_forecast.png'
         self.post(msg, media)
     def post_startupdate(self, msg=-1, media=-1):
@@ -109,12 +109,12 @@ class Alert(object):
         self.post(msg, media)
     def post_open_alert(self, msg=-1, media=-1):
         if msg ==-1: 
-            msg = '🚨🚨 ERUPTION ALERT TRIGGERED 🚨🚨 There is a 1 in 12 chance for an eruption to occur. Alerts last on average 5 days.'
+            msg = '🚨🚨 ERUPTION ALARM TRIGGERED 🚨🚨 There is a 1 in 4 chance for an eruption to occur during the average 6.5 day alarm. The likelihood of eruption is 134 times higher than normal.'
         if media ==-1: media = 'current_forecast.png'
         self.post(msg, media)
     def post_continue_alert(self, msg=-1, media=-1):
         if msg ==-1: 
-            msg = '🚨🚨 YESTERDAY\'S ALERT CONTINUES 🚨🚨 There is a 1 in 12 chance for an eruption to occur during an alert. Alerts last on average 5 days.'
+            msg = '🚨🚨 YESTERDAY\'S ALARM CONTINUES 🚨🚨 There is a 1 in 4 chance for an eruption to occur during the average 6.5 day alarm. The likelihood of eruption is 134 times higher than normal.'
         if media ==-1: media = 'current_forecast.png'
         self.post(msg, media)
     def post_close_alert(self, msg=-1, media=-1):
@@ -136,13 +136,12 @@ class Alert(object):
             return
         
         if self.new_alert:
-            subject = "Whakaari Eruption Forecast: New alert"
+            subject = "Whakaari Eruption Forecast: New alarm"
             message = [
-                'Whakaari Eruption Forecast model issued a new alert for {:s} local time.'.format(self.time_local.strftime('%d %b %Y at %H:%M')),
+                'Whakaari Eruption Forecast model issued a new alarm for {:s} local time.'.format(self.time_local.strftime('%d %b %Y at %H:%M')),
                 'Alerts last 48 hours and will auto-extend if elevated activity persists.',
-                'Based on historic performance, the probability of an eruption occuring during an alert is 8.2% in 48 hours.',
-                {yagmail.inline('./current_forecast.png'):'Forecast_{:s}.png'.format(self.time_local.strftime('%Y%m%d-%H%M%S'))},]
-            attachment = None
+                'Based on historic performance, the probability of an eruption occuring during an alarm is 8.2% in 48 hours.']
+            attachment = './current_forecast.png'
             mail_to = self.alert_mail_to
         elif self.new_system_down:
             subject = "Whakaari Eruption Forecast: Not receiving data"
@@ -200,6 +199,8 @@ class Controller(object):
             # update email addresses
             self.alert.monitor_mail_to = get_emails(self.alert.monitor_mail_to_file, self.alert.monitor_mail_to)
             self.alert.alert_mail_to = get_emails(self.alert.alert_mail_to_file, self.alert.alert_mail_to)
+            if self.test:
+                self.alert.alert_mail_to = self.alert.monitor_mail_to
         
             # take start time of look
             t0 = time()
@@ -528,7 +529,7 @@ def dashboard_v2(ys,fm,save):
     ax1.legend(loc=1, ncol=3)
 
     # plot time-averaged probability
-    ax_s[2].plot(trsam, rsam.values, 'k-', lw=0.5)
+    ax_s[2].plot(trsam, rsam.values*1.e-3, 'k-', lw=0.5)
     ax_s[2].set_ylabel('RSAM [$\mu$m s$^{-1}$]')
     ax_s[2].set_ylim([0,5])
     ax_s[2].yaxis.set_label_position("left")
@@ -568,7 +569,8 @@ def dashboard_v2(ys,fm,save):
     ax4.axis('off')
    
     ax1.set_title('Historic Forecast')
-    ax2.set_title('7-day Forecast')
+    tfi = to_nztimezone([fm.data.df.index[-1]])[0]
+    ax2.set_title('7-day Forecast - last updated {:s}'.format(tfi.strftime('%H:%M, %d %b %Y')))
     ax3.set_title('Probability')
     # ax4.set_title('Risk calculations')
 
@@ -897,14 +899,14 @@ if __name__ == "__main__":
         Other options for experts.
     '''
     # set parameters (set to None to turn of emailing)
-    keyfile = r'/home/ubuntu/twitter_keys.txt'
+    keyfile = r'/home/rccuser/twitter_keys.txt'
     mail_from = 'noreply.whakaariforecaster@gmail.com'
     
     # heartbeat and error raising emails (set to None to turn of emailing)
-    monitor_mail_to_file = r'/home/ubuntu/whakaari_monitor_mail_to.txt'
+    monitor_mail_to_file = r'/home/rccuser/whakaari_monitor_mail_to.txt'
     
     # forecast alert emails (set to None to turn of emailing)
-    alert_mail_to_file = r'/home/ubuntu/whakaari_alert_mail_to.txt'
+    alert_mail_to_file = r'/home/rccuser/whakaari_alert_mail_to.txt'
     
     parser = argparse.ArgumentParser()
     parser.add_argument("-m", 
@@ -913,7 +915,7 @@ if __name__ == "__main__":
         help="flag indicating how controller is to run")
     args = parser.parse_args()
     if args.m == 'controller':
-        controller = Controller(mail_from, monitor_mail_to_file, alert_mail_to_file, keyfile, test=True)
+        controller = Controller(mail_from, monitor_mail_to_file, alert_mail_to_file, keyfile, test=False)
         controller.run()
     elif args.m == 'controller-test':
         controller = Controller(None, None, None, None, test=True)
