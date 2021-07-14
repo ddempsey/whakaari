@@ -915,6 +915,7 @@ if __name__ == "__main__":
         help="flag indicating how controller is to run")
     args = parser.parse_args()
     if args.m == 'controller':
+        controller = Controller(None, None, None, keyfile, test=False)
         controller = Controller(mail_from, monitor_mail_to_file, alert_mail_to_file, keyfile, test=False)
         controller.run()
     elif args.m == 'controller-test':
