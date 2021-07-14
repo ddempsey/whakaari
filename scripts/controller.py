@@ -430,8 +430,8 @@ def dashboard_v2(ys,fm,save):
     # set up figures and axes
     f = plt.figure(figsize=(16,8))
     ax1 = plt.axes([0.05, 0.55, 0.4, 0.36])
-    ax2 = plt.axes([0.05, 0.08, 0.4, 0.36])
-    ax3 = plt.axes([0.54, 0.55, 0.4, 0.36])
+    ax2 = plt.axes([0.54, 0.55, 0.4, 0.36])
+    ax3 = plt.axes([0.05, 0.08, 0.4, 0.36])
     ax4 = plt.axes([0.63, 0.08, 0.3, 0.36])
     axs = [ax1,ax2,ax3]
     ax_s = [ax.twinx() for ax in axs]
@@ -493,35 +493,30 @@ def dashboard_v2(ys,fm,save):
         ax.set_xlim(lim)
         
     # plot probability trace
+    ax = ax3
     ax_2 = ax.twinx()
     ax_2.spines['right'].set_position(('outward', 60))
     ax_2.set_frame_on(True)
     ax_2.patch.set_visible(False)
     ax_2.yaxis.set_label_position("right")
-    ax_2.set_ylabel('48-hr eruption probability [%]')
+    ax_2.set_ylabel('likelihood relative to \'normal\'\n(probability gain)')
     
-    ax_3 = ax.twinx()
-    ax_3.spines['right'].set_position(('outward', 120))
-    ax_3.set_frame_on(True)
-    ax_3.patch.set_visible(False)
-    ax_3.yaxis.set_label_position("right")
-    ax_3.set_ylabel('likelihood relative to \'normal\'\n(probability gain)')
-
     inds = np.where((t>=lim[0])&(t<=lim[-1]))
     ti = t[inds]
     pi = p[inds]
     pci = pc[inds]
     ploi = plo[inds]
     phii = phi[inds]
-    ax_2.fill_between(ti, ploi*100, phii*100, color='b', zorder=0, linewidth=0., alpha=0.5)
-    ax_2.plot(ti, pi*100, 'b-', lw=0.5)
-    ax_3.set_ylim(ax_2.get_ylim()/(100*p0))
+    ax.fill_between(ti, ploi*100, phii*100, color='b', zorder=0, linewidth=0., alpha=0.5)
+    ax.plot(ti, pi*100, 'b-', lw=0.5)
+    ax.plot(ti, pci*100, 'b-', lw=2)
+    ax_2.set_ylim(ax_2.get_ylim()/(100*p0))
 
     ax.yaxis.set_label_position("right")
     ax.yaxis.tick_right()
     ax_.set_xlim(lim)
+    ax.set_xlim(lim)
     ax_2.set_xlim(lim)
-    ax_3.set_xlim(lim)
     ax.set_xticks(tks)
     ax.set_xticklabels(tls)
     ax.set_xlim(lim)
@@ -536,15 +531,12 @@ def dashboard_v2(ys,fm,save):
     ax_s[2].yaxis.tick_left()
     ax_s[2].set_xlim(lim)
 
-    ax3.fill_between(ti, ploi*100, phii*100, color='b', zorder=0, linewidth=0., alpha=0.5)
-    ax3.plot(ti, pi*100, 'b-', lw=0.5)
-    ax3.plot(ti, pci*100, 'b-', lw=2)
-    ax3.set_ylabel('48-hr eruption probability [%]')
-    ax3.yaxis.set_label_position("right")
-    ax3.yaxis.tick_right()
-    ax3.set_xticks(tks)
-    ax3.set_xticklabels(tls)
-    ax3.set_xlim(lim)
+    ax.set_ylabel('48-hr eruption probability [%]')
+    ax.yaxis.set_label_position("right")
+    ax.yaxis.tick_right()
+    ax.set_xticks(tks)
+    ax.set_xticklabels(tls)
+    ax.set_xlim(lim)
 
     ax4.set_xlim([0,1]); ax4.set_xticks([])
     ax4.set_ylim([0,1]); ax4.set_yticks([])
