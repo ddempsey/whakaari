@@ -1,7 +1,7 @@
 import os, sys
 sys.path.insert(0, os.path.abspath('..'))
-from whakaari import TremorData, ForecastModel, load_dataframe
-from datetime import timedelta
+from whakaari import TremorData, ForecastModel, load_dataframe, datetimeify
+from datetime import timedelta, datetime
 
 # tsfresh and sklearn dump a lot of warnings - these are switched off below, but should be
 # switched back on when debugging
@@ -14,7 +14,34 @@ warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=FitFailedWarning)
 
+def datetimeify(t):
+    """ Return datetime object corresponding to input string.
 
+        Parameters:
+        -----------
+        t : str, datetime.datetime
+            Date string to convert to datetime object.
+
+        Returns:
+        --------
+        datetime : datetime.datetime
+            Datetime object corresponding to input string.
+
+        Notes:
+        ------
+        This function tries several datetime string formats, and raises a ValueError if none work.
+    """
+    from pandas._libs.tslibs.timestamps import Timestamp
+    if type(t) in [datetime, Timestamp]:
+        return t
+    fmts = ['%Y-%m-%d %H:%M:%S', '%Y-%m-%d', '%Y %m %d %H %M %S',]
+    for fmt in fmts:
+        try:
+            return datetime.strptime(t, fmt)
+        except ValueError:
+            pass
+    raise ValueError("time data '{:s}' not a recognized format".format(t))
+    
 def forecast_dec2019():
     ''' forecast model for Dec 2019 eruption
     '''
@@ -78,18 +105,87 @@ def forecast_test():
         n_jobs=n_jobs)      
 
     # plot a forecast for a future eruption
+    # tf = te+month/30
+    # fm.hires_forecast(ti=te-fm.dtw-fm.dtf, tf=tf, recalculate=True, 
+    #     save=r'{:s}/forecast_Aug2013.png'.format(fm.plotdir), n_jobs=n_jobs)
+
     te = fm.data.tes[1]
     y = load_dataframe(r'D:\code\whakaari\predictions\test_hires\DecisionTreeClassifier_0000.pkl')
     tf = y.index[-1] + month/30./10.
     fm.hires_forecast(ti=te-fm.dtw-fm.dtf, tf=tf, recalculate=False, 
         save=r'{:s}/forecast_Aug2013.png'.format(fm.plotdir), n_jobs=n_jobs)
 
-def download_tremor():
-    td = TremorData(station='WIZ')
-    td.update(n_jobs=6)
+def extract_all():
+    ''' Load data and calculate features in parallel for multiple stations, multiple datastreams, and multiple window sizes.
+        Overlap is set to 1.0 (max) 
+    '''
+    import time
+    from functools import partial
+    from multiprocessing import Pool
+    
+    ## data streams
+    ds = ['zsc2_rsamF','zsc2_mfF','zsc2_hfF','zsc2_dsarF','diff_zsc2_rsamF','diff_zsc2_mfF','diff_zsc2_hfF','diff_zsc2_dsarF',
+        'log_zsc2_rsamF','log_zsc2_mfF','log_zsc2_hfF','log_zsc2_dsarF']
+    
+    ## stations
+    ss = ['KRVZ','FWVZ','WIZ']
+    
+    ## window sizes (days)
+    ws = [2., 14., 90., 365.]
+
+    ## Run parallelization 
+    ps = []
+    for s in ss:
+        for d in ds:
+            for w in ws:
+                ps.append([w,s,d])
+    n_jobs = 30 # number of cores
+    p = Pool(n_jobs)
+    p.map(extract_one, ps)
+
+def extract_one(p):
+    ''' Load data from a certain station, window size, and datastream (auxiliary function for parallelization)
+    p = [window size, station, datastream] '''
+    w,s,d = p
+    fm = ForecastModel(window=w, overlap=1., station = s,
+        look_forward=2., data_streams=[d], feature_dir='/media/eruption_forecasting/eruptions/features/', savefile_type='pkl') 
+    fm._load_data(datetimeify(fm.ti_model), datetimeify(fm.tf_model), None)
+
+def forecast_now():
+    ''' forecast model for present day 
+    '''
+    # constants
+    month = timedelta(days=365.25/12)
+    day = timedelta(days=1)
+        
+    # pull the latest data from GeoNet
+    td = TremorData()
+    td.update()
+
+    # model from 2011 to present day (td.tf)
+    data_streams = ['rsam','mf','hf','dsar']
+    fm = ForecastModel(ti='2011-01-01', tf=td.tf, window=2, overlap=0.75,  
+        look_forward=2, data_streams=data_streams, root='online_forecaster')
+    
+    # set the available CPUs higher or lower as appropriate
+    n_jobs = 6
+    
+    # The online forecaster is trained using all eruptions in the dataset. It only
+    # needs to be trained once, or again after a new eruption.
+    # (Hint: feature matrices can be copied from other models to avoid long recalculations
+    # providing they have the same window length and data streams. Copy and rename 
+    # to *root*_features.csv)
+    drop_features = ['linear_trend_timewise','agg_linear_trend']
+    fm.train(ti='2011-01-01', tf='2020-01-01', drop_features=drop_features, 
+        retrain=True, n_jobs=n_jobs)      
+    
+    # forecast the last 7 days at high resolution
+    fm.hires_forecast(ti=fm.data.tf - 7*day, tf=fm.data.tf, recalculate=True, 
+        save='current_forecast.png', nztimezone=True, n_jobs=n_jobs)  
 
 if __name__ == "__main__":
-    # test problems to check your installation is working correctly
-    # download_tremor()
-    forecast_test()
+    #forecast_dec2019()
+    #forecast_test()
+    extract_all()
+    #forecast_now()
     

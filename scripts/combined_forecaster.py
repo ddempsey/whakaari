@@ -32,13 +32,14 @@ class TremorDataCombined(TremorData):
         self.df = []
         for station in stations:
             self._datas.append(TremorData(station, parent))
-            fl = os.sep.join(getfile(currentframe()).split(os.sep)[:-2]+['data','{:s}_eruptive_periods.txt'.format(station)])
+            #fl = os.sep.join(getfile(currentframe()).split(os.sep)[:-2]+['data','{:s}_eruptive_periods.txt'.format(station)])
+            fl = '..\\data\\'+'{:s}_eruptive_periods.txt'.format(station)
             with open(fl,'r') as fp:
                 self._datas[-1].tes = [datetimeify(ln.rstrip()) for ln in fp.readlines()]
             self.tes += self._datas[-1].tes
             self.df.append(self._datas[-1].df)
         self.df = pd.concat(self.df)
-        self.tes = sorted(list(set(self.tes)))
+        #self.tes = sorted(list(set(self.tes))) # ## testing: need to be checked
         self.ti = np.min([station.ti for station in self._datas])
         self.tf = np.max([station.tf for station in self._datas])
     def _compute_transforms(self):
@@ -78,7 +79,9 @@ class ForecastModelCombined(ForecastModel):
             tf = self.data.tf
         self.tf_model = datetimeify(tf)
 
-        self._featfile = lambda st,ds: (r'{:s}/{:3.2f}w_{:3.2f}o_{:s}'.format(self.featdir,self.window, self.overlap, st)+'_{:s}.'+self.savefile_type).format(ds)
+        #self._featfile = lambda st,ds: (r'{:s}/{:3.2f}w_{:3.2f}o_{:s}'.format(self.featdir,self.window, self.overlap, st)+'_{:s}.'+self.savefile_type).format(ds)
+        self._featfile = lambda aux, st, ds: (r'{:s}/fm_{:3.2f}w_{:s}_{:s}'.format(self.featdir,self.window, ds, self.station)+'{:s}.'+self.savefile_type).format(st)
+
     def _exclude_dates(self, X, y, exclude_dates):
         """ Drop rows from feature matrix and label vector.
 
@@ -114,7 +117,7 @@ class ForecastModelCombined(ForecastModel):
     def _load_data(self, ti, tf):
         fM = []
         ys = []
-        for station in self._data._datas:
+        for i, station in enumerate(self._data._datas):
             self.data = station
             self.featfile = partial(self._featfile, station.station)
             tii = np.max([ti, station.ti])
@@ -123,12 +126,16 @@ class ForecastModelCombined(ForecastModel):
             # fMi,ysi = self._load_data(tii,tfi)
             fM.append(fMi)
             ys.append(ysi)
+        del fMi, ysi
         self.data = self._data
-        # fM = pd.concat(fM, sort=False)
-        # ys = pd.concat(ys, sort=False)
+        #fM = pd.concat(fM, axis=1, sort=False)
+        #ys = pd.concat(ys, axis=1, sort=False)
+
         return fM, ys
+    #def train(self, ti=None, tf=None, Nfts=20, Ncl=500, retrain=False, classifier="DT", random_seed=0,
+    #   drop_features=[], n_jobs=6, exclude_dates=[], use_only_features=[], method=0.75):
     def train(self, ti=None, tf=None, Nfts=20, Ncl=500, retrain=False, classifier="DT", random_seed=0,
-            drop_features=[], n_jobs=6, exclude_dates=[], use_only_features=[]):
+            drop_features=[], n_jobs=6, exclude_dates=[], use_only_features=[], method=0.75):
         """ Construct classifier models.
 
             Parameters:
@@ -195,8 +202,10 @@ class ForecastModelCombined(ForecastModel):
 
         # get feature matrix and label vector
         fMs, yss = self._load_data(self.ti_train, self.tf_train)
-
+        
         # manually drop windows (rows) by station
+        fMa = []
+        ysa = []
         for fM, ys, i in zip(fMs, yss, range(len(yss))):
             station = self.data._datas[i].station
             ed = []
@@ -207,10 +216,12 @@ class ForecastModelCombined(ForecastModel):
                     if edi[-1] == station:
                         ed.append(edi)
             fM, ys = self._exclude_dates(fM, ys, ed)
+            fMa.append(fM)
+            ysa.append(ys)
 
         # merge feature matrices
-        fM = pd.concat(fMs, sort=False)
-        ys = pd.concat(yss, sort=False)
+        fM = pd.concat(fMa, sort=False)
+        ys = pd.concat(ysa, sort=False)
 
         # manually drop features (columns)
         fM = self._drop_features(fM, drop_features)
@@ -236,7 +247,7 @@ class ForecastModelCombined(ForecastModel):
             mapper = p.imap
         else:
             mapper = map
-        f = partial(train_one_model, fM, ys, Nfts, self.modeldir, self.classifier, retrain, random_seed)
+        f = partial(train_one_model, fM, ys, Nfts, self.modeldir, self.classifier, retrain, random_seed, method)
 
         # train models with glorious progress bar
         for i, _ in enumerate(mapper(f, range(Ncl))):
@@ -315,33 +326,37 @@ def combined_forecaster():
     drop_features = ['linear_trend_timewise','agg_linear_trend','*attr_"imag"*','*attr_"real"*',
         '*attr_"angle"*']
     data_streams = ['zsc_rsam','zsc_mf','zsc_hf','zsc_dsar']
+    data_streams = ['zsc_rsam','zsc_mf','zsc_hf','zsc_dsar', 'log_zsc2_rsamF', 'diff_zsc2_rsamF']
 
-    # load feature matrices for WIZ and WSRZ
+    # load feature matrices for WIZ and FWVZ
     fm0 = ForecastModelCombined(window=2., overlap=0.75, look_forward=2., data_streams=data_streams,
-        root='combined_forecaster', savefile_type='pkl', stations=['FWVZ','WIZ'])#,'FWVZ'])#,'KRVZ'])
+        root='combined_forecaster', savefile_type='csv', stations=['WIZ','FWVZ'])#,'KRVZ']) 'FWVZ', 
     
     # drop all Fourier coefficients sampling at higher than 1/4 Nyquist
     freq_max = fm0.dtw//fm0.dt//4
     drop_features += ['*fft_coefficient__coeff_{:d}*'.format(i) for i in range(freq_max+1, 2*freq_max+2)]
 
-    for d in fm0.data._datas:
-        d.update()
+    #for d in fm0.data._datas:
+    #    d.update()
     
-    for station in fm0.data._datas:
+    for j, station in enumerate(fm0.data._datas):
+        print('Training from station: '+station.station+' ('+str(j+1)+'/'+str(len(fm0.data._datas))+')')
         for i,te in enumerate(station.tes):
             
-            fm = ForecastModelCombined(window=2., overlap=0.75, look_forward=2., data_streams=data_streams,
-                root='combined_forecaster_{:s}_e{:d}'.format(station.station,i+1), savefile_type='pkl', 
+            fm = ForecastModelCombined(window=2., overlap=0.5, look_forward=2., data_streams=data_streams,
+                root='combined_forecaster_{:s}_e{:d}'.format(station.station,i+1), savefile_type='csv', 
                 stations=fm0.stations)
 
             exclude_dates = [[te-month, te+month, station.station]]
+
+            print('Eruption: '+str(te.year)+' ('+str(i+1)+'/'+str(len(station.tes))+')')
 
             fm.train(drop_features=drop_features, retrain=True, Ncl=500, n_jobs=n_jobs, 
                 exclude_dates=exclude_dates)        
         
             ys = fm.hires_forecast(ti=te-2*fm.dtw-fm.dtf, tf=te+month/28., station=station.station,
                     recalculate=True, save=r'{:s}/forecast_hires.png'.format(fm.plotdir), 
-                    n_jobs=n_jobs, root=r'{:s}_hires'.format(fm.root), threshold=1.0)
+                    n_jobs=n_jobs, root=r'{:s}'.format(fm.root), threshold=.8) # root=r'{:s}_hires'.
 
             y = ys['consensus']
             ci = fm._compute_CI(y)
