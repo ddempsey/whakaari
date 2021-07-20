@@ -1,5 +1,6 @@
 __pycache__/
 *.py[cod]
+data/*.csv
 models/
 features/
 predictions/
