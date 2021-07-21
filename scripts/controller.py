@@ -410,10 +410,10 @@ def update_forecast_v2():
         dashboard_v2(ys['consensus'], fm, 'current_forecast.png')
 
         al = (ys['consensus'].values[ys.index>(tf-fm.dtf)] > THR)*1.
-        if len(al) == 0:
+        if len(al)==0:
             in_alert = -1
         else:
-            in_alert = 1
+            in_alert = int(np.max(al))
         with open('alert.csv', 'w') as fp:                
             fp.write('{:d}\n'.format(in_alert))
             
@@ -510,7 +510,7 @@ def dashboard_v2(ys,fm,save):
     ax.fill_between(ti, ploi*100, phii*100, color='b', zorder=0, linewidth=0., alpha=0.5)
     ax.plot(ti, pi*100, 'b-', lw=0.5)
     ax.plot(ti, pci*100, 'b-', lw=2)
-    ax_2.set_ylim(ax_2.get_ylim()/(100*p0))
+    ax_2.set_ylim(ax.get_ylim()/(100*p0))
 
     ax.yaxis.set_label_position("right")
     ax.yaxis.tick_right()
