@@ -121,6 +121,9 @@ class TremorData(object):
             elif self.station == 'KRVZ':
                 t0 = datetime(2006,1,2)
                 t1 = datetime(2006,1,3)
+            elif self.station == 'PV6':
+                t0 = datetime(2010,1,2)
+                t1 = datetime(2010,1,3)
             else:
                 raise ValueError("No file for {:s} - when should I start downloading?".format(self.station))
             self.update(t0,t1)
@@ -298,11 +301,16 @@ class TremorData(object):
         # parallel data collection - creates temporary files in ./_tmp
         pars = [[i,ti,self.station] for i in range(ndays)]
         n_jobs = self.n_jobs if n_jobs is None else n_jobs
-        # get_data_for_day(*pars[0])
-        p = Pool(n_jobs)
-        p.starmap(get_data_for_day, pars)
-        p.close()
-        p.join()
+        n_jobs = 6
+        if True: # serial 
+            for par in pars:
+                print(str(par[0]+1)+'/'+str(len(pars)))
+                get_data_for_day(*par)
+        else: # paralel
+            p = Pool(n_jobs)
+            p.starmap(get_data_for_day, pars)
+            p.close()
+            p.join()
 
         # special case of no file to update - create new file
         if not self.exists:
@@ -310,7 +318,11 @@ class TremorData(object):
             try:
                 shutil.copyfile('_tmp/_tmp_fl_00000.csv',self.file)
             except:
-                shutil.copyfile('_tmp/_tmp_fl_00001.csv',self.file)
+                try:
+                    shutil.copyfile('_tmp/_tmp_fl_00001.csv',self.file)
+                except:
+                  f = open(self.file, 'w')
+                  f.close()      
             # end testing
             self.exists = True
             shutil.rmtree('_tmp')
@@ -335,7 +347,6 @@ class TremorData(object):
             ind = i*24*6
             self.df['dsar'][ind] = 0.5*(self.df['dsar'][ind-1]+self.df['dsar'][ind+1])
 
-        # self.df.to_csv(self.file, index=True)
         save_dataframe(self.df, self.file, index=True)
         self.ti = self.df.index[0]
         self.tf = self.df.index[-1]
@@ -1556,6 +1567,7 @@ class ForecastModel(object):
             save : str
                 File name to save figure.
         """
+        
         makedir(self.plotdir)
         # set up figures and axes
         f = plt.figure(figsize=(8,4))
@@ -1601,7 +1613,7 @@ class ForecastModel(object):
         ax.fill_between([], [], [], color='y', label='eruption forecast')
         ax.plot([],[],'k-', lw=0.75, label='RSAM')
 
-        ax.legend(loc=2, ncol=2)
+        ax.legend(loc=3, ncol=2)
 
         tmax = np.max([t[-1], trsam[-1]])
         tmin = np.min([t[0], trsam[0]])
@@ -1638,9 +1650,9 @@ class ForecastModel(object):
         
         ax.set_xlim(xlim)
         ax_.set_xlim(xlim)
-        
-        ax.text(0.025, 0.95, ys.index[-1].strftime('%Y'), size = 12, ha = 'left', va = 'top', transform=ax.transAxes)
 
+        props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
+        ax.text(0.85, 0.95, self.data.station +' '+ ys.index[-1].strftime('%Y'), size = 12, ha = 'left', va = 'top', transform=ax.transAxes, bbox=props)
         plt.savefig(save, dpi=400)
         plt.close(f)
     def get_performance(self, t, y, thresholds, ialert=None, dti=None):
@@ -1977,8 +1989,12 @@ def get_data_for_day(i,t0,station):
     t0 = UTCDateTime(t0)
 
     # open clients
-    client = FDSNClient("GEONET")
-    client_nrt = FDSNClient('https://service-nrt.geonet.org.nz')
+    if station in ['PV6']:
+        client = FDSNClient("IRIS")
+        client_nrt = FDSNClient('http://service.iris.edu')        
+    else:
+        client = FDSNClient("GEONET")
+        client_nrt = FDSNClient('https://service-nrt.geonet.org.nz')
     
     daysec = 24*3600
     fbands = [[2, 5], [4.5, 8], [8,16]]
@@ -1990,14 +2006,17 @@ def get_data_for_day(i,t0,station):
     columns = []
     try:
         channel = 'HHZ'
-        if station == 'KRVZ':
+        if station in ['KRVZ','PV6']:
             channel = 'EHZ'
         site = client.get_stations(starttime=t0+i*daysec, endtime=t0 + (i+1)*daysec, station=station, level="response", channel=channel)
     except FDSNNoDataException:
         pass
 
     try:
-        WIZ = client.get_waveforms('NZ',station, "10", channel, t0+i*daysec, t0 + (i+1)*daysec)
+        if station in ['PV6']:
+            WIZ = client.get_waveforms('AV',station, None, channel, t0+i*daysec, t0 + (i+1)*daysec)
+        else:     
+            WIZ = client.get_waveforms('NZ',station, "10", channel, t0+i*daysec, t0 + (i+1)*daysec)
         
         # if less than 1 day of data, try different client
         if len(WIZ.traces[0].data) < 600*100:
@@ -2076,6 +2095,7 @@ def get_data_for_day(i,t0,station):
     time = [(ti+j*600).datetime for j in range(datas.shape[1])]
     df = pd.DataFrame(zip(*datas), columns=columns, index=pd.Series(time))
     save_dataframe(df, '_tmp/_tmp_fl_{:05d}.csv'.format(i), index=True, index_label='time')
+
 
 def wrapped_indices(maxIdx, f, subDomainRange, N):
     startIdx = int(maxIdx-np.floor(f*subDomainRange)) # Compute the index of the domain where the subdomain centered on the peak begins

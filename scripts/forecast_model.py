@@ -92,16 +92,16 @@ def forecast_test():
     month = timedelta(days=365.25/12)
         
     # set up model
-    data_streams = ['rsam','mf','hf','dsar']
-    fm = ForecastModel(ti='2012-07-15', tf='2012-08-16', window=2., overlap=0.75, 
+    data_streams = ['log_zsc2_rsamF']#,'mf','hf','dsar']
+    fm = ForecastModel(ti='2014-01-01', tf='2014-12-31', station='PV6', window=2., overlap=0.75, 
         look_forward=2., data_streams=data_streams, root='test', savefile_type='pkl')
     
     # set the available CPUs higher or lower as appropriate
-    n_jobs = 1
+    n_jobs = 6
     
     # train the model
     drop_features = ['linear_trend_timewise','agg_linear_trend']
-    fm.train(ti='2012-07-15', tf='2012-08-16', drop_features=drop_features, retrain=False,
+    fm.train(ti='2014-01-01', tf='2014-12-31', drop_features=drop_features, retrain=False,
         n_jobs=n_jobs)      
 
     # plot a forecast for a future eruption
@@ -110,10 +110,13 @@ def forecast_test():
     #     save=r'{:s}/forecast_Aug2013.png'.format(fm.plotdir), n_jobs=n_jobs)
 
     te = fm.data.tes[1]
-    y = load_dataframe(r'D:\code\whakaari\predictions\test_hires\DecisionTreeClassifier_0000.pkl')
-    tf = y.index[-1] + month/30./10.
-    fm.hires_forecast(ti=te-fm.dtw-fm.dtf, tf=tf, recalculate=False, 
-        save=r'{:s}/forecast_Aug2013.png'.format(fm.plotdir), n_jobs=n_jobs)
+    #y = load_dataframe(r'D:\code\whakaari\predictions\test_hires\DecisionTreeClassifier_0000.pkl')
+    #tf = y.index[-1] + month/30./10.
+    #ti=te-fm.dtw-fm.dtf
+    ti=te - month/2
+    tf= ti + month
+    fm.hires_forecast(ti=ti, tf=tf, recalculate=False, 
+        save=r'{:s}/forecast_PV6_2014a.png'.format(fm.plotdir), n_jobs=n_jobs)
 
 def extract_all():
     ''' Load data and calculate features in parallel for multiple stations, multiple datastreams, and multiple window sizes.
@@ -126,12 +129,12 @@ def extract_all():
     ## data streams
     ds = ['zsc2_rsamF','zsc2_mfF','zsc2_hfF','zsc2_dsarF','diff_zsc2_rsamF','diff_zsc2_mfF','diff_zsc2_hfF','diff_zsc2_dsarF',
         'log_zsc2_rsamF','log_zsc2_mfF','log_zsc2_hfF','log_zsc2_dsarF']
-    
+    ds = ['log_zsc2_rsamF', 'zsc2_hfF']
     ## stations
     ss = ['KRVZ','FWVZ','WIZ']
-    
+    ss = ['PV6']
     ## window sizes (days)
-    ws = [2., 14., 90., 365.]
+    ws = [2.] #, 14., 90., 365.]
 
     ## Run parallelization 
     ps = []
@@ -139,7 +142,7 @@ def extract_all():
         for d in ds:
             for w in ws:
                 ps.append([w,s,d])
-    n_jobs = 30 # number of cores
+    n_jobs = 5 # number of cores
     p = Pool(n_jobs)
     p.map(extract_one, ps)
 
@@ -147,8 +150,10 @@ def extract_one(p):
     ''' Load data from a certain station, window size, and datastream (auxiliary function for parallelization)
     p = [window size, station, datastream] '''
     w,s,d = p
+    #fm = ForecastModel(window=w, overlap=1., station = s,
+    #    look_forward=2., data_streams=[d], feature_dir='/media/eruption_forecasting/eruptions/features/', savefile_type='pkl') 
     fm = ForecastModel(window=w, overlap=1., station = s,
-        look_forward=2., data_streams=[d], feature_dir='/media/eruption_forecasting/eruptions/features/', savefile_type='pkl') 
+        look_forward=2., data_streams=[d], savefile_type='csv') 
     fm._load_data(datetimeify(fm.ti_model), datetimeify(fm.tf_model), None)
 
 def forecast_now():
@@ -185,7 +190,7 @@ def forecast_now():
 
 if __name__ == "__main__":
     #forecast_dec2019()
-    #forecast_test()
-    extract_all()
+    forecast_test()
+    #extract_all()
     #forecast_now()
     

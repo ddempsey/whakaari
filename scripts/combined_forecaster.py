@@ -1,7 +1,7 @@
 import os, sys, gc
 sys.path.insert(0, os.path.abspath('..'))
 from whakaari import (TremorData, ForecastModel, 
-    datetimeify, makedir, get_classifier, train_one_model)
+    datetimeify, makedir, get_classifier, train_one_model, get_data_for_day)
 from datetime import timedelta, datetime
 from inspect import getfile, currentframe
 from functools import partial
@@ -326,11 +326,17 @@ def combined_forecaster():
     drop_features = ['linear_trend_timewise','agg_linear_trend','*attr_"imag"*','*attr_"real"*',
         '*attr_"angle"*']
     data_streams = ['zsc_rsam','zsc_mf','zsc_hf','zsc_dsar']
-    data_streams = ['zsc_rsam','zsc_mf','zsc_hf','zsc_dsar', 'log_zsc2_rsamF', 'diff_zsc2_rsamF']
+    data_streams = ['zsc2_rsamF','zsc2_mfF','zsc2_hfF','zsc2_dsarF']#['zsc_rsamF','zsc_mfF','zsc_hfF','zsc_dsarF', 'log_zsc2_rsamF', 'diff_zsc2_rsamF']
+    
+    data_streams = ['zsc2_rsamF','zsc2_mfF','zsc2_hfF','zsc2_dsarF','diff_zsc2_rsamF','diff_zsc2_mfF','diff_zsc2_hfF','diff_zsc2_dsarF',
+        'log_zsc2_rsamF','log_zsc2_mfF','log_zsc2_hfF','log_zsc2_dsarF']
+    #data_streams = ['zsc2_hfF']
+    data_streams = ['log_zsc2_rsamF', 'zsc2_hfF']
+    #data_streams = ['diff_zsc2_rsamF']
 
     # load feature matrices for WIZ and FWVZ
     fm0 = ForecastModelCombined(window=2., overlap=0.75, look_forward=2., data_streams=data_streams,
-        root='combined_forecaster', savefile_type='csv', stations=['WIZ','FWVZ'])#,'KRVZ']) 'FWVZ', 
+        root='combined_forecaster', savefile_type='csv', stations=['PV6'])#'WIZ','FWVZ'])#,'KRVZ']) 'FWVZ', 
     
     # drop all Fourier coefficients sampling at higher than 1/4 Nyquist
     freq_max = fm0.dtw//fm0.dt//4
@@ -338,7 +344,7 @@ def combined_forecaster():
 
     #for d in fm0.data._datas:
     #    d.update()
-    
+
     for j, station in enumerate(fm0.data._datas):
         print('Training from station: '+station.station+' ('+str(j+1)+'/'+str(len(fm0.data._datas))+')')
         for i,te in enumerate(station.tes):
@@ -366,9 +372,35 @@ def combined_forecaster():
             with open(r'{:s}/forecast_confidence.txt'.format(fm.plotdir), 'w') as fp:
                 fp.write('{:4.3f}'.format(conf))
 
+def import_pavlof():
+
+    # from obspy.clients.fdsn import Client
+    # client = Client("IRIS")
+    # from obspy import UTCDateTime
+    # #t = UTCDateTime("2012-02-27T00:00:00.000")
+    # #starttime = UTCDateTime("2016-03-26")
+    # #endtime = UTCDateTime("2016-03-28")
+    # #inventory = client.get_stations(network="AV", station="PV6", starttime=starttime, endtime=endtime)
+    # #st = client.get_waveforms(network = "AV", station = "PV6", location = None, channel = "EHZ", starttime=starttime, endtime=endtime)
+    # #st.plot()  
+    # station = 'PV6' 
+    # i = 1
+    # t0 = "2016-03-26"
+    # get_data_for_day(i,t0,station)
+
+    # constants
+    month = timedelta(days=365.25/12)
+    day = timedelta(days=1)
+    t0 = "2010-05-01"
+    t1 = "2016-12-31"
+    #t1 = "2010-05-04"
+    td = TremorData(station = 'PV6')
+    td.update(ti=t0, tf=t1)
+
 def model():
     # build and run combined forecast model
-    combined_forecaster()    
+    import_pavlof()
+    #combined_forecaster()    
 
 if __name__ == "__main__":
     model()
