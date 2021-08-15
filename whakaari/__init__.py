@@ -124,6 +124,27 @@ class TremorData(object):
             elif self.station == 'PV6':
                 t0 = datetime(2010,1,2)
                 t1 = datetime(2010,1,3)
+            elif self.station == 'PVV':
+                t0 = datetime(2014,1,1)
+                t1 = datetime(2014,1,2)
+            elif self.station == 'BELO':
+                t0 = datetime(2007,8,21)
+                t1 = datetime(2007,8,22)
+            elif self.station == 'OKWR':
+                t0 = datetime(2008,1,1)
+                t1 = datetime(2008,1,2)
+            elif self.station == 'VNSS':
+                t0 = datetime(2013,1,1)
+                t1 = datetime(2013,1,2)
+            elif self.station == 'SSLW':
+                t0 = datetime(2014,1,1)
+                t1 = datetime(2014,1,2)
+            elif self.station == 'CRPO':
+                t0 = datetime(2016,1,1)
+                t1 = datetime(2016,1,2)
+            elif self.station == 'REF':
+                t0 = datetime(2006,1,1)
+                t1 = datetime(2006,1,2)
             else:
                 raise ValueError("No file for {:s} - when should I start downloading?".format(self.station))
             self.update(t0,t1)
@@ -302,11 +323,17 @@ class TremorData(object):
         pars = [[i,ti,self.station] for i in range(ndays)]
         n_jobs = self.n_jobs if n_jobs is None else n_jobs
         n_jobs = 6
-        if True: # serial 
+        if False: # serial 
+            print('Station '+self.station+': Downloading data in serial')
             for par in pars:
                 print(str(par[0]+1)+'/'+str(len(pars)))
+                #print(str(par))
                 get_data_for_day(*par)
         else: # paralel
+            print('Station '+self.station+': Downloading data in parallel')
+            print('From: '+ str(ti))
+            print('To: '+ str(tf))
+            print('\n')
             p = Pool(n_jobs)
             p.starmap(get_data_for_day, pars)
             p.close()
@@ -340,6 +367,9 @@ class TremorData(object):
 
         # impute missing data using linear interpolation and save file
         self.df = self.df.loc[~self.df.index.duplicated(keep='last')]
+        if True: #save non-interporlated data
+            save_dataframe(self.df, self.file[:-4]+'_nitp'+self.file[-4:], index=True)
+
         self.df = self.df.resample('10T').interpolate('linear')
 
         # remove artefact in computing dsar
@@ -379,7 +409,7 @@ class TremorData(object):
         # subset data
         inds = (self.df.index>=ti)&(self.df.index<tf)
         return self.df.loc[inds]
-    def plot(self, data_streams='rsam', save='tremor_data.png', ylim=[0, 5000]):
+    def plot(self, data_streams='rsam', save='tremor_data.png', ylim=None):
         """ Plot tremor data.
 
             Parameters:
@@ -438,20 +468,139 @@ class TremorData(object):
                 ax.set_ylabel('data [nm/s]')
             else:
                 ax.set_yticklabels([])
+            a = ax.get_xlim()
             x0,x1 =[xi+timedelta(days=xl)-_DAY for xl in ax.get_xlim()]
             #testing
-            #inds = (data.index>=x0)&(data.index<=x1)
-            inds = (data.index.to_pydatetime()>=x0)&(data.index.to_pydatetime()<=x1)
+            inds = (data.index>=x0)&(data.index<=x1)
+            inds = (data.index>=datetimeify(x0))&(data.index<=datetimeify(x1))
             #
             for data_stream, col in zip(data_streams,cols):
                 ax.plot(data.index[inds], data[data_stream].loc[inds], '-', color=col, label=data_stream)
-            
             for te in self.tes:
                 ax.axvline(te, color='k', linestyle='--', linewidth=2)
             ax.axvline(te, color='k', linestyle='--', linewidth=2, label='eruption')
         axs[-1].legend()
         
         plt.savefig(save, dpi=400)
+    def plot_zoom(self, data_streams='rsamF', save=None, range=None):
+        """ Plot tremor data.
+
+            Parameters:
+            -----------
+            save : str
+                Name of file to save output.
+            data_streams : str, list
+                String or list of strings indicating which data or transforms to plot (see below). 
+            range : list
+                Two-element list indicating time range boundary
+                
+            data type options:
+            ------------------
+            rsam - 2 to 5 Hz (Real-time Seismic-Amplitude Measurement)
+            mf - 4.5 to 8 Hz (medium frequency)
+            hf - 8 to 16 Hz (high frequency)
+            dsar - ratio of mf to hf, rolling median over 180 days
+
+            transform options:
+            ------------------
+            inv - inverse, i.e., 1/
+            diff - finite difference derivative
+            log - base 10 logarithm
+            stft - short-time Fourier transform at 40-45 min period
+
+            Example:
+            --------
+            data_streams = ['dsar', 'diff_hf'] will plot the DSAR signal and the derivative of the HF signal.
+        """
+        if type(data_streams) is str:
+            data_streams = [data_streams,]
+        if any(['_' in ds for ds in data_streams]):
+            self._compute_transforms()
+
+        # adding multiple Axes objects  
+        fig, ax = plt.subplots(1, 1, figsize=(15,5))
+        #ax.set_xlim(*range)
+        # plot data for each year
+        data = self.get_data(*range)
+        xi = datetime(year=1,month=1,day=1,hour=0,minute=0,second=0)
+        cols = ['c','m','y','g',[0.5,0.5,0.5],[0.75,0.75,0.75]]
+        inds = (data.index>=datetimeify(range[0]))&(data.index<=datetimeify(range[1]))
+        for data_stream, col in zip(data_streams,cols):
+            ax.plot(data.index[inds], data[data_stream].loc[inds], '-', color=col, label=data_stream)
+        for te in self.tes:
+            if [te>=datetimeify(range[0]) and te<=datetimeify(range[1])]:
+                ax.axvline(te, color='k', linestyle='--', linewidth=2, zorder = 0)
+        #
+        ax.plot([], color='k', linestyle='--', linewidth=2, label = 'eruption')
+        ax.set_xlim(*range)
+        ax.legend()
+        ax.grid()
+        ax.set_ylabel('rsam')
+        ax.set_xlabel('Time [year-month]')
+        ax.title.set_text('Station '+self.station+': Tremor data')
+        #plt.show()
+        if not save:
+            save='../data/plots/'+self.station+'_tremor_data_zoom.png'
+        plt.savefig(save, dpi=400)
+    def plot_intp_data(self, save=None, range_dates=None):
+        """ Plot interpolated tremor data
+
+            Parameters:
+            -----------
+            save : str
+                Name of file to save output.
+            range_dates : list
+                Two-element list indicating time range boundary
+
+            Example:
+            --------
+        """
+        month = timedelta(days=365.25/12)
+        # import interpolated data
+        df_intp = load_dataframe(self.file, index_col=0, parse_dates=[0,], infer_datetime_format=True)
+        # import non-interpolated data 
+        df_non_intp = load_dataframe(self.file[:-4]+'_nitp'+self.file[-4:], index_col=0, parse_dates=[0,], infer_datetime_format=True)
+        # % of interpolated data 
+        p_intp = df_non_intp.shape[0] / df_intp.shape[0] * 100.
+        
+        # distribution of interpolated data 
+        fig, (ax, ax2) = plt.subplots(2, 1, figsize=(12,5),gridspec_kw={'height_ratios': [1, 3]})
+        _aux = df_intp['rsamF'] - df_non_intp['rsamF'] # ceros (point) and nans (interpolated)
+        for i in range(_aux.size): 
+            if _aux[i]:
+                ax.plot([df_intp.index[i], df_intp.index[i]], [0, 1.], '-', color = 'red',  alpha = 0.7, linewidth=0.3)#, label = 'data points')
+        ax.plot([], [], '-', color = 'red',  alpha = 0.5, linewidth=0.3, label = 'Location interpolated data points')
+        ax.set_xlim([df_intp.index[0]-month, df_intp.index[-1]+month])
+        # Turn off tick labels
+        ax.set_yticklabels([])
+        ax.set_xticklabels([])
+        #
+        ax2.plot(df_non_intp.index, df_non_intp['rsamF'], '*', color = 'b', label = 'data points', markersize=1)
+        ax2.plot(df_intp.index, df_intp['rsamF'], '-', color = 'k', alpha = 0.5, linewidth=0.5, label = 'interpolated data')
+        #
+        for te in self.tes:
+            #if [te>=datetimeify(range[0]) and te<=datetimeify(range[1])]:
+            ax.axvline(te, color='k', linestyle='--', linewidth=.7, alpha = 0.7, zorder = 0)
+            ax2.axvline(te, color='k', linestyle='--', linewidth=.7, alpha = 0.7, zorder = 0)
+        ax.plot([], color='k', linestyle='--', linewidth=.7, label = 'eruption', alpha = 0.7)
+        ax2.plot([], color='k', linestyle='--', linewidth=.7, label = 'eruption', alpha = 0.7)
+        #
+        ax2.set_xlim([df_intp.index[0]-month, df_intp.index[-1]+month])
+        ax2.set_ylabel('rsam')
+        ax2.set_xlabel('Time [year-month]')
+        #
+        if range_dates:
+            range_dates = [datetimeify(range_dates[0]),datetimeify(range_dates[1])]
+            ax.set_xlim([range_dates[0]-month, range_dates[1]+month])
+            ax2.set_xlim([range_dates[0]-month, range_dates[1]+month])
+        #
+        ax.legend()
+        ax2.legend()
+        ax2.grid()
+        ax.title.set_text('Station '+self.station+': interpolated data points '+str(round(p_intp,2))+'%')
+        #fig.tight_layout()      
+        #plt.show()
+        plt.savefig('../data/plots/'+self.station+'_data_itp.png', dpi=400)
 
 class ForecastModel(object):
     """ Object for train and running forecast models.
@@ -1573,10 +1722,16 @@ class ForecastModel(object):
         f = plt.figure(figsize=(8,4))
         ax = plt.axes([0.1, 0.08, 0.8, 0.8])
         t = pd.to_datetime(ys.index.values)
-        if 'zsc_rsam' in self.data_streams and 'rsam' not in self.data_streams:
-            rsam = self.data.get_data(t[0], t[-1])['zsc_rsam']
+        if True: # plot filtered data
+            if 'zsc_rsamF' in self.data_streams and 'rsamF' not in self.data_streams:
+                rsam = self.data.get_data(t[0], t[-1])['zsc_rsamF']
+            else: 
+                rsam = self.data.get_data(t[0], t[-1])['rsamF']
         else: 
-            rsam = self.data.get_data(t[0], t[-1])['rsam']
+            if 'zsc_rsam' in self.data_streams and 'rsam' not in self.data_streams:
+                rsam = self.data.get_data(t[0], t[-1])['zsc_rsam']
+            else: 
+                rsam = self.data.get_data(t[0], t[-1])['rsam']
         trsam = rsam.index
         if nztimezone:
             t = to_nztimezone(t)
@@ -1613,7 +1768,7 @@ class ForecastModel(object):
         ax.fill_between([], [], [], color='y', label='eruption forecast')
         ax.plot([],[],'k-', lw=0.75, label='RSAM')
 
-        ax.legend(loc=3, ncol=2)
+        ax.legend(loc=2, ncol=2)
 
         tmax = np.max([t[-1], trsam[-1]])
         tmin = np.min([t[0], trsam[0]])
@@ -1989,7 +2144,7 @@ def get_data_for_day(i,t0,station):
     t0 = UTCDateTime(t0)
 
     # open clients
-    if station in ['PV6']:
+    if station in ['PV6','PVV','BELO','OKWR','VNSS','SSLW','CRPO','REF']:
         client = FDSNClient("IRIS")
         client_nrt = FDSNClient('http://service.iris.edu')        
     else:
@@ -2006,15 +2161,19 @@ def get_data_for_day(i,t0,station):
     columns = []
     try:
         channel = 'HHZ'
-        if station in ['KRVZ','PV6']:
+        if station in ['KRVZ','PV6','PVV','OKWR','VNSS','SSLW','REF']:
             channel = 'EHZ'
         site = client.get_stations(starttime=t0+i*daysec, endtime=t0 + (i+1)*daysec, station=station, level="response", channel=channel)
     except FDSNNoDataException:
         pass
 
     try:
-        if station in ['PV6']:
+        if station in ['PV6','PVV','OKWR','VNSS','SSLW','REF']:
             WIZ = client.get_waveforms('AV',station, None, channel, t0+i*daysec, t0 + (i+1)*daysec)
+        elif station in ['BELO']:
+            WIZ = client.get_waveforms('YC',station, None, channel, t0+i*daysec, t0 + (i+1)*daysec)
+        elif station in ['CRPO']:
+            WIZ = client.get_waveforms('OV',station, None, channel, t0+i*daysec, t0 + (i+1)*daysec)
         else:     
             WIZ = client.get_waveforms('NZ',station, "10", channel, t0+i*daysec, t0 + (i+1)*daysec)
         

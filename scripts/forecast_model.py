@@ -92,8 +92,10 @@ def forecast_test():
     month = timedelta(days=365.25/12)
         
     # set up model
-    data_streams = ['log_zsc2_rsamF']#,'mf','hf','dsar']
-    fm = ForecastModel(ti='2014-01-01', tf='2014-12-31', station='PV6', window=2., overlap=0.75, 
+    #data_streams = ['log_zsc2_rsamF', 'zsc2_mfF']#, 'zsc2_hfF']#['log_zsc2_rsamF']#,'mf','hf','dsar']
+    data_streams = ['zsc2_rsamF','zsc2_mfF','zsc2_hfF','zsc2_dsarF','diff_zsc2_rsamF','diff_zsc2_mfF','diff_zsc2_hfF','diff_zsc2_dsarF',
+        'log_zsc2_rsamF','log_zsc2_mfF','log_zsc2_hfF','log_zsc2_dsarF']
+    fm = ForecastModel(ti=None, tf=None, station='BELO', window=2., overlap=0.75, 
         look_forward=2., data_streams=data_streams, root='test', savefile_type='pkl')
     
     # set the available CPUs higher or lower as appropriate
@@ -101,7 +103,12 @@ def forecast_test():
     
     # train the model
     drop_features = ['linear_trend_timewise','agg_linear_trend']
-    fm.train(ti='2014-01-01', tf='2014-12-31', drop_features=drop_features, retrain=False,
+    #drop_features = ['linear_trend_timewise','agg_linear_trend','*attr_"imag"*','*attr_"real"*',
+    #    '*attr_"angle"*']  
+    #freq_max = fm.dtw//fm.dt//4
+    #drop_features += ['*fft_coefficient__coeff_{:d}*'.format(i) for i in range(freq_max+1, 2*freq_max+2)]
+
+    fm.train(ti=None, tf=None, drop_features=drop_features, retrain=True,
         n_jobs=n_jobs)      
 
     # plot a forecast for a future eruption
@@ -115,8 +122,8 @@ def forecast_test():
     #ti=te-fm.dtw-fm.dtf
     ti=te - month/2
     tf= ti + month
-    fm.hires_forecast(ti=ti, tf=tf, recalculate=False, 
-        save=r'{:s}/forecast_PV6_2014a.png'.format(fm.plotdir), n_jobs=n_jobs)
+    fm.hires_forecast(ti=ti, tf=tf, recalculate=True, 
+        save=r'{:s}/forecast_.png'.format(fm.plotdir), n_jobs=n_jobs)
 
 def extract_all():
     ''' Load data and calculate features in parallel for multiple stations, multiple datastreams, and multiple window sizes.
