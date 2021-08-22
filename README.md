@@ -1,8 +1,5 @@
-# Volcano Eruption Forecasting using Transfer Learning
-Eruption forecast model for multiple volcanoes usgin machine transfer-learning.
-This model implements a time series feature engineering and classification workflow that issues eruption alerts based on real-time tremor data. This is the real-time version for running on a VM with html forecaster output and email alerting.
-
-Note: this a derived code from https://github.com/ddempsey/whakaari implemented for for Whakaari (White Island, New Zealand). Copyright (c) 2020 David Dempsey
+# Whakaari
+Eruption forecast model for Whakaari (White Island, New Zealand). This model implements a time series feature engineering and classification workflow that issues eruption alerts based on real-time tremor data. This is the real-time version for running on a VM with html forecaster output and email alerting.
 
 ## Installation
 
