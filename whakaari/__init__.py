@@ -128,8 +128,8 @@ class TremorData(object):
                 t0 = datetime(2014,1,1)
                 t1 = datetime(2014,1,2)
             elif self.station == 'BELO':
-                t0 = datetime(2007,8,21)
-                t1 = datetime(2007,8,22)
+                t0 = datetime(2007,1,1)
+                t1 = datetime(2007,1,2)
             elif self.station == 'OKWR':
                 t0 = datetime(2008,1,1)
                 t1 = datetime(2008,1,2)
