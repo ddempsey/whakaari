@@ -322,7 +322,7 @@ class TremorData(object):
         # parallel data collection - creates temporary files in ./_tmp
         pars = [[i,ti,self.station] for i in range(ndays)]
         n_jobs = self.n_jobs if n_jobs is None else n_jobs
-        n_jobs = 6
+        n_jobs = 32 
         if False: # serial 
             print('Station '+self.station+': Downloading data in serial')
             for par in pars:
@@ -356,7 +356,8 @@ class TremorData(object):
             return
 
         # read temporary files in as dataframes for concatenation with existing data
-        dfs = [self.df[['dsar','dsarF','hf','hfF','mf','mfF','rsam','rsamF']]]
+        print(self.df.columns)
+        dfs = [self.df[['hf','hfF','mf','mfF','rsam','rsamF','lf','lfF','vlf','vlfF','dsar','dsarF','rmar','rmarF','lrar','lrarF','vlar','vlarF']]]
         for i in range(ndays):
             fl = '_tmp/_tmp_fl_{:05d}.csv'.format(i)
             if not os.path.isfile(fl): 
@@ -2152,9 +2153,9 @@ def get_data_for_day(i,t0,station):
         client_nrt = FDSNClient('https://service-nrt.geonet.org.nz')
     
     daysec = 24*3600
-    fbands = [[2, 5], [4.5, 8], [8,16]]
-    names = ['rsam','mf','hf']
-    frs = [200, 100, 50]
+    fbands = [[0.01,0.1],[0.1,2],[2, 5], [4.5, 8], [8,16]]
+    names = ['vlf','lf','rsam','mf','hf']
+    frs = [200,200,200, 100, 50]
 
     # download data
     datas = []
@@ -2235,19 +2236,21 @@ def get_data_for_day(i,t0,station):
         datas.append(np.array(df)); columns.append(name+'F')
 
     # compute dsar (w/ EQ filter)
-    dr = []
-    df = []
-    for k, outlier, maxIdx in zip(range(m), outliers, maxIdxs):
-        domain_mf = _dataIs[1][k*N:(k+1)*N]
-        domain_hf = _dataIs[2][k*N:(k+1)*N]
-        dr.append(np.mean(domain_mf)/np.mean(domain_hf))
-        if outlier: # If data needs filtering
-            Idx = wrapped_indices(maxIdx, f, subDomainRange, N)
-            domain_mf = np.delete(domain_mf, Idx) 
-            domain_hf = np.delete(domain_hf, Idx) 
-        df.append(np.mean(domain_mf)/np.mean(domain_hf))
-    datas.append(np.array(dr)); columns.append('dsar')
-    datas.append(np.array(df)); columns.append('dsarF')
+    ratio_names=['vlar','lrar','rmar','dsar']
+    for j,rname in enumerate(ratio_names):
+        dr = []
+        df = []
+        for k, outlier, maxIdx in zip(range(m), outliers, maxIdxs):
+            domain_mf = _dataIs[j][k*N:(k+1)*N]
+            domain_hf = _dataIs[j+1][k*N:(k+1)*N]
+            dr.append(np.mean(domain_mf)/np.mean(domain_hf))
+            if outlier: # If data needs filtering
+                Idx = wrapped_indices(maxIdx, f, subDomainRange, N)
+                domain_mf = np.delete(domain_mf, Idx) 
+                domain_hf = np.delete(domain_hf, Idx) 
+            df.append(np.mean(domain_mf)/np.mean(domain_hf))
+        datas.append(np.array(dr)); columns.append(rname)
+        datas.append(np.array(df)); columns.append(rname+'F')
 
     # write out temporary file
     datas = np.array(datas)
