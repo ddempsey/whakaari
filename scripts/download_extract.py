@@ -66,13 +66,14 @@ def extract_one(p):
     fm._load_data(datetimeify(fm.ti_model), datetimeify(fm.tf_model), None)
 
 def download_all():
-    stations = ['PV6','PVV','BELO','SSLW','CRPO','REF']
+    from datetime import timedelta
+    stations = ['PV6','PVV','BELO','SSLW','REF']
     for station in stations:
-        try:
-            td = TremorData(station=station)
-            td.update(n_jobs=32)
-        except:
-            continue
+        td = TremorData(station=station)
+        ti = td._probe_start()
+        N
+        # for i in range()
+        #     td.update(ti, ti+timedelta(days=3), n_jobs=3)
 
 def probe():
     # from obspy.clients.fdsn import Client as FDSNClient 
@@ -114,8 +115,8 @@ def probe():
 if __name__ == "__main__":
     #forecast_dec2019()
     #forecast_test()
-    # download_all()
+    download_all()
     # extract_all()
-    probe()
+    # probe()
     #forecast_now()
     

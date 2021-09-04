@@ -350,7 +350,6 @@ class TremorData(object):
                 self.df['diff_zsc2_'+col] = self.df['diff_zsc2_'+col].rolling(window=2).min()
                 self.df['diff_zsc2_'+col] = self.df[col].diff()
                 self.df['diff_zsc2_'+col][0] = 0.
-
     def _is_eruption_in(self, days, from_time):
         """ Binary classification of eruption imminence.
 
@@ -404,14 +403,13 @@ class TremorData(object):
         # parallel data collection - creates temporary files in ./_tmp
         pars = [[i,ti,self.station] for i in range(ndays)]
         n_jobs = self.n_jobs if n_jobs is None else n_jobs        
-        # get_data_for_day(*pars[0])
         if False: # serial 
             print('Station '+self.station+': Downloading data in serial')
             for par in pars:
                 print(str(par[0]+1)+'/'+str(len(pars)))
                 #print(str(par))
                 get_data_for_day(*par)
-        else: # paralel
+        else: # parallel
             print('Station '+self.station+': Downloading data in parallel')
             print('From: '+ str(ti))
             print('To: '+ str(tf))
@@ -2250,16 +2248,13 @@ def get_data_for_day(i,t0,station):
     S = STATIONS[station]
 
     
-    client = S['client_name']
-    client_nrt = S['nrt_name']
+    client = FDSNClient(S['client_name'])
+    client_nrt = FDSNClient(S['nrt_name'])
 
     # download data
     datas = []
     columns = []
     try:
-        # channel = 'HHZ'
-        # if station in ['KRVZ','PV6','PVV','OKWR','VNSS','SSLW','REF']:
-        #     channel = 'EHZ'
         site = client.get_stations(starttime=t0+i*daysec, endtime=t0 + (i+1)*daysec, station=station, level="response", channel=S['channel'])
     except FDSNNoDataException:
         pass
@@ -2267,16 +2262,6 @@ def get_data_for_day(i,t0,station):
     pad_f=0.2
     try:
         st = client.get_waveforms(S['network'],station, None, S['channel'], t0+(i-pad_f)*daysec, t0 + (i+1+pad_f)*daysec)
-        # if station in ['PV6','PVV','OKWR','VNSS','SSLW','REF']:
-        #     # st = client.get_waveforms('AV',station, None, channel, t0+i*daysec, t0 + (i+1)*daysec)
-        #     # with open('st.pkl','wb') as fp:
-        #     #     pickle.dump([st,site],fp)
-        # elif station in ['BELO']:
-        #     st = client.get_waveforms('YC',station, None, channel, t0+i*daysec, t0 + (i+1)*daysec)
-        # elif station in ['CRPO']:
-        #     st = client.get_waveforms('OV',station, None, channel, t0+i*daysec, t0 + (i+1)*daysec)
-        # else:     
-        #     st = client.get_waveforms('NZ',station, "10", channel, t0+i*daysec, t0 + (i+1)*daysec)
         
         # if less than 1 day of data, try different client
         data = get_data_from_stream(st, site)
