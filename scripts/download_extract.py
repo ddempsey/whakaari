@@ -3,6 +3,7 @@ sys.path.insert(0, os.path.abspath('..'))
 from whakaari import TremorData, ForecastModel, load_dataframe, datetimeify
 from datetime import timedelta, datetime
 from matplotlib import pyplot as plt
+import numpy as np
 
 # tsfresh and sklearn dump a lot of warnings - these are switched off below, but should be
 # switched back on when debugging
@@ -26,11 +27,11 @@ def extract_all():
     ## data streams
     ds = ['zsc2_rsamF','zsc2_mfF','zsc2_hfF','zsc2_dsarF','diff_zsc2_rsamF','diff_zsc2_mfF','diff_zsc2_hfF','diff_zsc2_dsarF',
         'log_zsc2_rsamF','log_zsc2_mfF','log_zsc2_hfF','log_zsc2_dsarF']
-    ds + ['zsc2_vlfF','zsc2_lfF','zsc2_vlarF','zsc2_lrarF','zsc2_rmarF','diff_zsc2_vlfF','diff_zsc2_lfF','diff_zsc2_vlarF','diff_zsc2_lrarF',
+    ds += ['zsc2_vlfF','zsc2_lfF','zsc2_vlarF','zsc2_lrarF','zsc2_rmarF','diff_zsc2_vlfF','diff_zsc2_lfF','diff_zsc2_vlarF','diff_zsc2_lrarF',
         'diff_zsc2_rmarF','log_zsc2_vlfF','log_zsc2_lfF','log_zsc2_vlarF','log_zsc2_lrarF','log_zsc2_rmarF']
     #ds = ['log_zsc2_rsamF', 'zsc2_hfF']
     ## stations
-    ss = ['KRVZ','FWVZ','WIZ','PV6','PVV','BELO','OKWR','VNSS','SSLW','CRPO','REF']
+    ss = ['KRVZ','FWVZ','WIZ','PVV','BELO','OKWR','VNSS','SSLW','REF']
     #ss = ['PV6']
     ## window sizes (days)
     ws = [2.] #, 14., 90., 365.]
@@ -41,7 +42,7 @@ def extract_all():
         for d in ds:
             for w in ws:
                 ps.append([w,s,d])
-    n_jobs = 5 # number of cores
+    n_jobs = 32 # number of cores
     p = Pool(n_jobs)
     p.map(extract_one, ps)
 
@@ -67,13 +68,18 @@ def extract_one(p):
 
 def download_all():
     from datetime import timedelta
-    stations = ['PV6','PVV','BELO','SSLW','REF']
+    stations = ['BELO','SSLW','REF','PVV']
+    dt = timedelta(days=64.)
     for station in stations:
         td = TremorData(station=station)
         ti = td._probe_start()
-        N
-        # for i in range()
-        #     td.update(ti, ti+timedelta(days=3), n_jobs=3)
+        N = int(np.ceil((datetime.today()-ti._get_datetime())/dt))
+        for i in range(N):
+            t0=ti+i*dt
+            t1=ti+(i+1)*dt
+            if t1>datetime.today():
+                t1 = datetime.today()
+            td.update(t0, t1, n_jobs=32)
 
 def probe():
     # from obspy.clients.fdsn import Client as FDSNClient 
@@ -116,7 +122,7 @@ if __name__ == "__main__":
     #forecast_dec2019()
     #forecast_test()
     download_all()
-    # extract_all()
+    extract_all()
     # probe()
     #forecast_now()
     
