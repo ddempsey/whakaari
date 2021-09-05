@@ -12,11 +12,12 @@ from copy import copy
 from matplotlib import pyplot as plt
 from inspect import getfile, currentframe
 from glob import glob
+from obspy.clients.fdsn.header import FDSNException
 import pandas as pd
 from pandas._libs.tslibs.timestamps import Timestamp
 from multiprocessing import Pool, cpu_count
 from textwrap import wrap
-from time import time
+from time import time, sleep
 from scipy.integrate import cumtrapz
 from scipy.signal import stft
 from scipy.optimize import curve_fit
@@ -402,7 +403,7 @@ class TremorData(object):
 
         # parallel data collection - creates temporary files in ./_tmp
         pars = [[i,ti,self.station] for i in range(ndays)]
-        n_jobs = self.n_jobs if n_jobs is None else n_jobs        
+        n_jobs = self.n_jobs if n_jobs is None else n_jobs   
         if False: # serial 
             print('Station '+self.station+': Downloading data in serial')
             for par in pars:
@@ -2228,15 +2229,6 @@ def get_data_for_day(i,t0,station):
         
     """
     t0 = UTCDateTime(t0)
-
-    # open clients
-
-    # if station in ['PV6','PVV','BELO','OKWR','VNSS','SSLW','CRPO','REF']:
-    #     client = FDSNClient("IRIS")
-    #     client_nrt = FDSNClient('http://service.iris.edu')        
-    # else:
-    #     client = FDSNClient("GEONET")
-    #     client_nrt = FDSNClient('https://service-nrt.geonet.org.nz')
     
     daysec = 24*3600
     fbands = [[0.01,0.1],[0.1,2],[2, 5], [4.5, 8], [8,16]]
@@ -2247,9 +2239,19 @@ def get_data_for_day(i,t0,station):
     D = 4   # decimation factor
     S = STATIONS[station]
 
-    
-    client = FDSNClient(S['client_name'])
-    client_nrt = FDSNClient(S['nrt_name'])
+    attempts = 0    
+    while True:
+        try:
+            client = FDSNClient(S['client_name'])
+            client_nrt = FDSNClient(S['nrt_name'])
+            break
+        except FDSNException:
+            sleep(30)
+            attempts += 1
+            pass
+        if attempts > 10:
+            raise FDSNException('timed out after 10 attempts, couldn\'t connect to FDSN service')
+
 
     # download data
     datas = []
@@ -2269,7 +2271,7 @@ def get_data_for_day(i,t0,station):
             raise FDSNNoDataException('')
     except (ObsPyMSEEDFilesizeTooSmallError,FDSNNoDataException) as e:
         try:
-            st = client_nrt.get_waveforms(S['network'],station, "10", S['channel'], t0+i*daysec, t0 + (i+1)*daysec)
+            st = client_nrt.get_waveforms(S['network'],station, "10", S['channel'], t0+(i-pad_f)*daysec, t0 + (i+1+pad_f)*daysec)
             data = get_data_from_stream(st, site)
         except FDSNNoDataException:
             return
@@ -2281,6 +2283,8 @@ def get_data_for_day(i,t0,station):
     data = st.traces[0]
     i0=int((t0+i*daysec-st.traces[0].meta['starttime'])*F)+1
     if i0<0:
+        return
+    if i0 >= len(data):
         return
     i1=int(24*3600*F)
     if (i0+i1)>len(data):
