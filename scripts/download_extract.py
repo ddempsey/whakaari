@@ -32,6 +32,7 @@ def extract_all():
     #ds = ['log_zsc2_rsamF', 'zsc2_hfF']
     ## stations
     ss = ['KRVZ','FWVZ','WIZ','PVV','BELO','OKWR','VNSS','SSLW','REF']
+    ss = ['VNSS']
     #ss = ['PV6']
     ## window sizes (days)
     ws = [2.] #, 14., 90., 365.]
@@ -41,10 +42,11 @@ def extract_all():
     for s in ss:
         for d in ds:
             for w in ws:
-                ps.append([w,s,d])
-    n_jobs = 32 # number of cores
-    p = Pool(n_jobs)
-    p.map(extract_one, ps)
+                extract_one([w,s,d])
+                #ps.append([w,s,d])
+    #n_jobs = 32 # number of cores
+    #p = Pool(n_jobs)
+    #p.map(extract_one, ps)
 
 def extract_one(p):
     ''' Load data from a certain station, window size, and datastream (auxiliary function for parallelization)
@@ -63,23 +65,28 @@ def extract_one(p):
     #fm = ForecastModel(window=w, overlap=1., station = s,
     #    look_forward=2., data_streams=[d], feature_dir='/media/eruption_forecasting/eruptions/features/', savefile_type='pkl') 
     fm = ForecastModel(window=w, overlap=o, station = s,
-        look_forward=2., data_streams=[d], feature_dir='/media/eruption_forecasting/eruptions/features/', savefile_type='pkl')
-    fm._load_data(datetimeify(fm.ti_model), datetimeify(fm.tf_model), None)
+        look_forward=2., data_streams=[d], savefile_type='pkl')
+    from datetime import timedelta
+    month = timedelta(days=365.25/12)
+    for te in fm.data.tes:
+        fm._load_data(te-2*month, te+month, None)
 
 def download_all():
     from datetime import timedelta
-    stations = ['BELO','SSLW','REF','PVV']
+    stations = ['OKWR','VNSS']
     dt = timedelta(days=64.)
     for station in stations:
         td = TremorData(station=station)
         ti = td._probe_start()
+        if td.tf is not None:
+            ti = td.tf
         N = int(np.ceil((datetime.today()-ti._get_datetime())/dt))
         for i in range(N):
-            t0=ti+i*dt
+            t0=ti+i*dt+timedelta(days=1)
             t1=ti+(i+1)*dt
             if t1>datetime.today():
-                t1 = datetime.today()
-            td.update(t0, t1, n_jobs=32)
+                t1 = datetime.today()   
+            td.update(t0, t1, n_jobs=1)
 
 def probe():
     # from obspy.clients.fdsn import Client as FDSNClient 
@@ -117,12 +124,26 @@ def probe():
     ax.plot(st.traces[0].data[i0:i0+i1])
     plt.show()
 
+def check_ratios():
+    fm = ForecastModel(window=2, overlap=1, station = 'WIZ',
+        look_forward=2., data_streams=['zsc2_rmarF'], savefile_type='pkl',
+        feature_dir=r'U:\Research\EruptionForecasting\eruptions\features')
+    from datetime import timedelta
+    month = timedelta(days=365.25/12)
+    f, axs = plt.subplots(5,1)
+    for te,ax in zip(fm.data.tes,axs):
+        fM,ys = fm._load_data(te-month, te, None) 
+        ax.plot(fM.index, fM['zsc2_rmarF__median'], 'k-')
+        
+    plt.show()
+
 
 if __name__ == "__main__":
     #forecast_dec2019()
     #forecast_test()
-    download_all()
-    extract_all()
+    # download_all()
+    check_ratios()
+    # extract_all()
     # probe()
     #forecast_now()
     
