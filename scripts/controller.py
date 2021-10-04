@@ -883,6 +883,11 @@ def is_iterable(x):
     except TypeError:
         return False
 
+def test():
+    td = TremorData(station="IVGP")
+    td.update()
+    pass
+
 if __name__ == "__main__":  
     ''' For real-time operation, enter at the command line:
 
@@ -890,6 +895,8 @@ if __name__ == "__main__":
 
         Other options for experts.
     '''
+    test()
+    asdf
     # set parameters (set to None to turn of emailing)
     keyfile = r'/home/rccuser/twitter_keys.txt'
     mail_from = 'noreply.whakaariforecaster@gmail.com'
