@@ -629,7 +629,7 @@ def dashboard_v2(ys,fm,save):
 
 def _update_vulcano():
     td = TremorData(station="IVGP")
-    # td.update()
+    td.update()
     fts = ['median','change_quantiles','fft_coefficient']   
     fts2 = ['zsc2_dsarF__median','zsc2_dsarF__change_quantiles__f_agg_"var"__isabs_False__qh_0.6__ql_0.4',
     'zsc2_hfF__fft_coefficient__coeff_38__attr_"real"']  
