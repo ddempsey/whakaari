@@ -735,8 +735,10 @@ class ForecastModel(object):
         '''
         ftfl = ds
         if self.feature_root: 
-            ftfl += '_'+self.feature_root     
-        if yr is not None and not self.feature_root.endswith('_{:d}'.format(yr)): 
+            ftfl += '_'+self.feature_root   
+        if self.feature_root is None and yr is not None:
+            ftfl += '_{:d}'.format(yr)
+        elif yr is not None and not self.feature_root.endswith('_{:d}'.format(yr)): 
             ftfl += '_{:d}'.format(yr)
         return self.featfile(ftfl)   
     def _get_label(self, ts):
@@ -1023,7 +1025,7 @@ class ForecastModel(object):
         self.n_jobs = n_jobs
         ti = self.ti_model if ti is None else datetimeify(ti)
         tf = self.tf_model if tf is None else datetimeify(tf)
-        return self._load_data(ti, tf)
+        return self._load_data(ti, tf, None)
     def train(self, ti=None, tf=None, Nfts=20, Ncl=500, retrain=False, classifier="DT", random_seed=0,
             drop_features=[], n_jobs=6, exclude_dates=[], use_only_features=[], method=0.75):
         """ Construct classifier models.

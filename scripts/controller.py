@@ -262,7 +262,7 @@ class Controller(object):
                 shutil.copyfile('current_forecast.png','/var/www/html/current_forecast.png')
 
             if os.path.isfile('vulcano.png'):
-                shutil.copyfile('current_forecast.png','/var/www/html/vulcano.png')
+                shutil.copyfile('vulcano.png','/var/www/html/vulcano.png')
 
             # send alerts
             self.alert.send_email_alerts()
@@ -629,12 +629,13 @@ def dashboard_v2(ys,fm,save):
 
 def _update_vulcano():
     td = TremorData(station="IVGP")
-    td.update()
-    fts = ['median','change_quantiles']   
-    fts2 = ['zsc2_dsarF__median','zsc2_dsarF__change_quantiles__f_agg_"var"__isabs_False__qh_0.6__ql_0.4']  
+    # td.update()
+    fts = ['median','change_quantiles','fft_coefficient']   
+    fts2 = ['zsc2_dsarF__median','zsc2_dsarF__change_quantiles__f_agg_"var"__isabs_False__qh_0.6__ql_0.4',
+    'zsc2_hfF__fft_coefficient__coeff_38__attr_"real"']  
     
     fm_e1 = ForecastModel(window=2., overlap=1., station = 'IVGP',
-        look_forward=2., data_streams=['zsc2_dsarF'], savefile_type='csv')
+        look_forward=2., data_streams=['zsc2_dsarF','zsc2_hfF'], savefile_type='csv')
     fm_e1.compute_only_features=fts
         
     tf_e1 = fm_e1.data.df.index[-1]
@@ -651,7 +652,7 @@ def _update_vulcano():
     ft_e1_t = ft_e1[0].index.values
     ccs=[]
     ftvs = []
-    for i,ft in enumerate(fts2):
+    for i,ft in enumerate(fts2[:2]):
         ft_e1_v = ft_e1[0].loc[:,ft].values
         # ft_e1_v = [ft_e1_v[i][0] for i in range(len(ft_e1_v))]    
         cc = corr_with_precursor(ft_e1_v, prec_code=i+1, path_prec='.'+os.sep)
@@ -659,7 +660,7 @@ def _update_vulcano():
         ftvs.append(ft_e1[0])
 
     fl = 'cc.csv'
-    df = pd.DataFrame(np.array([ccs,]), columns=fts, index=np.array([tf_e1,]).T)
+    df = pd.DataFrame(np.array([ccs,]), columns=fts[:2], index=np.array([tf_e1,]).T)
     if os.path.isfile(fl):
         cc=load_dataframe(fl,index_col='time', infer_datetime_format=True, parse_dates=['time'])
         if cc.index[-1] != tf_e1:
@@ -671,59 +672,89 @@ def _update_vulcano():
 
     # set up figures and axes
     f = plt.figure(figsize=(16,8))
-    ax1 = plt.axes([0.05, 0.55, 0.4, 0.36])
-    ax2 = plt.axes([0.05, 0.08, 0.4, 0.36])
-    ax3 = plt.axes([0.56, 0.55, 0.4, 0.36])
-    ax4 = plt.axes([0.56, 0.08, 0.4, 0.36])
+    ax1 = plt.axes([0.05, 0.57, 0.4, 0.36])
+    ax2 = plt.axes([0.05, 0.08, 0.35, 0.36])
+    ax3 = plt.axes([0.54, 0.57, 0.4, 0.36])
+    ax4 = plt.axes([0.54, 0.08, 0.4, 0.36])
 
     rsam = fm_e1.data.get_data(ti_e1, tf_e1)['rsam']
     dsar = fm_e1.data.get_data(ti_e1, tf_e1)['dsar']
     # ax1.set_title('current Vulcano data')
-    ax1.plot(rsam.index, rsam.values*1.e-3,'k-', label='RSAM')
+    ax1.plot(rsam.index, rsam.values*1.e-3,'k-', lw=0.5, label='RSAM')
     ax1_ = ax1.twinx()
-    ax1_.plot(dsar.index, dsar.values, 'b-')
+    ax1_.plot(dsar.index, dsar.values, 'b-', lw=0.5)
     ax1.plot([],[],'b-',label='DSAR')
-    tks, tls = get_ticks(ti_e1, tf_e1)
+    tks, tls = get_ticks(ti_e1, tf_e1, override=1)
     ax1.set_ylabel('RSAM [$\mu$m s$^{-1}$]')
     ax1_.set_ylabel('DSAR [-]')    
     ax1.set_title('Vulcano correlations - last updated {:s} (UTC)'.format(tf_e1.strftime('%H:%M, %d %b %Y')))
+    ax1.set_xticks(tks)
+    ax1.set_xticklabels(tls)
+    ax1.set_xlim([rsam.index[0], rsam.index[-1]])
+    ax1_.set_xlim([rsam.index[0], rsam.index[-1]])
     
     ax2.set_title('Current Vulcano feature time series')
-    ax2.plot(ft_e1[0].index, ft_e1[0][fts2[0]].values, 'b-', label='DSAR median')
+    ax2.plot(ft_e1[0].index, ft_e1[0][fts2[0]].values, 'b-', lw=0.5, label='DSAR median')
     ax2_ = ax2.twinx()
-    ax2_.plot(ft_e1[0].index, ft_e1[0][fts2[1]].values, 'r-')
-    ax2.plot([],[],'r-', label='DSAR change quantiles')
+    ax2_.plot(ft_e1[0].index, ft_e1[0][fts2[1]].values, 'g-', lw=0.5)
+    ax_2 = ax2.twinx()
+    ax2.set_zorder(10)
+    ax2_.set_zorder(8)
+    ax2.patch.set_visible(False)
+    
+    ax_2.spines['right'].set_position(('outward', 60))
+    ax_2.set_frame_on(True)
+    ax_2.patch.set_visible(False)
+    ax_2.yaxis.set_label_position("right")
+    ax_2.yaxis.tick_right()
+    ax_2.plot(ft_e1[0].index, ft_e1[0][fts2[2]].values, 'r-', lw=0.5)
+    ax_2.set_ylim([-500,500])
+    ax2.set_xticks(tks)
+    ax2.set_xticklabels(tls)
+    
+    ax2.plot([],[],'g-', lw=0.5, label='DSAR change quantiles')
+    ax2.plot([],[],'r-', lw=0.5, label='HF 75-min harmonic')
     ax2.set_xlim([ti_e1, tf_e1])
     ax2.set_ylabel('DSAR median')
     ax2_.set_ylabel('DSAR change quantiles')
+    ax_2.set_ylabel('HF 75-min harmonic')
     
     ax3.set_title('Vulcano 1-month correlations')
     ax3.plot(cc.index, cc[fts[0]].values, 'b--', label='DSAR median')
     ax3.axhline(0.6, color='b', linestyle=':', label='concern threshold')
     ax3_ = ax3.twinx()
-    ax3_.plot(cc.index, cc[fts[1]].values, 'r--')
-    ax3_.axhline(0.29, color='r', linestyle=':', label='concern threshold')
-    ax3.plot([],[],'r--', label='DSAR change quantiles')
+    ax3_.plot(cc.index, cc[fts[1]].values, 'g--')
+    ax3_.axhline(0.29, color='g', linestyle=':', label='concern threshold')
+    ax3.plot([],[],'g--', label='DSAR change quantiles')
+    ax3.plot([],[],'g:', label='concern threshold')
     ax3.set_ylabel('DSAR median: Whakaari correlation')
     ax3_.set_ylabel('DSAR change quantiles: Ruapehu correlation')
     ax3.legend()
+    tks2, tls2 = get_ticks(cc.index[0], cc.index[-1])
+    ax3.set_xticks(tks2)
+    ax3.set_xticklabels(tls2)
+    ax3_.set_xticks(tks2)
+    ax3_.set_xticklabels(tls2)
 
     ft1 = np.loadtxt('./prec_WIZ_5_zsc2_dsarF__median.csv',skiprows=1,delimiter=',', usecols=1)
     ft2 = np.loadtxt('prec_FWVZ_2_zsc2_dsarF__change_quantiles__f_agg_-var-__isabs_False__qh_0.6__ql_0.4.csv',skiprows=1,delimiter=',', usecols=1)
 
-    ax4.set_title('Features for prior Whakaari, Ruapehu eruptions')
-    ax4.plot(range(len(ft1)), ft1, 'b-', label='Whakaari 2019 DSAR median')
+    ax4.set_title('Feature time series for prior Whakaari, Ruapehu eruptions')
+    t = np.array(range(len(ft2)))/(6*24)
+    ax4.plot(t, ft1, 'b-', lw=0.5, label='Whakaari 2019 DSAR median')
     ax4_ = ax4.twinx()
-    ax4_.plot(range(len(ft2)), ft2, 'r-')
-    ax4.plot([],[],'r-', label='Ruapehu 2007 DSAR change quantiles')    
+    ax4_.plot(t, ft2, 'g-', lw=0.5)
+    ax4.set_xlim([0,t[-1]])
+    ax4.plot([],[],'g-', lw=0.5, label='Ruapehu 2007 DSAR change quantiles')    
+    ax4.set_xlabel('days')
     ax4.legend()
     ax4.set_ylabel('DSAR median: Whakaari 2019')
     ax4_.set_ylabel('DSAR change quantiles: Ruapehu 2007')
     
     for ax in [ax1,ax2]:
-        ax.set_xticks(tks)
-        ax.set_xticklabels(tls)
         ax.legend()
+        for tick in ax.get_xticklabels():
+            tick.set_rotation(90)
 
     plt.savefig('vulcano.png', dpi=300)
     plt.close(f)
@@ -1013,31 +1044,35 @@ def integrate_probability(p, N):
     Np = len(pi)
     return np.mean([(1.-i/N)*pi[N-i:Np-i] for i in range(N)], axis=0)*2.
 
-def get_ticks(tmin, tmax):
+def get_ticks(tmin, tmax, override=-1):
     
     dt = (tmax-tmin).total_seconds()
-    if dt < 10.*24*3600:
+    if override != -1:
+        dti = np.inf
+    else:
+        dti = dt
+    if dti < 10.*24*3600 or override == 0:
         ndays = int(np.ceil(dt/(24*3600)))+1
         t0 = tmax.replace(hour=0, minute=0, second=0)
         xts = [t0 - timedelta(days=i) for i in range(ndays)][::-1]
         lxts = [xt.strftime('%d %b').lstrip('0') for xt in xts]
-    elif dt < 20.*24*3600:
+    elif dti < 20.*24*3600 or override == 1:
         ndays = int(np.ceil(dt/(24*3600))/2)+1
         t0 = tmax.replace(hour=0, minute=0, second=0)
         xts = [t0 - timedelta(days=2*i) for i in range(ndays)][::-1]
         lxts = [xt.strftime('%d %b').lstrip('0') for xt in xts]
-    elif dt < 70.*24*3600:
+    elif dti < 70.*24*3600 or override == 2:
         ndays = int(np.ceil(dt/(24*3600))/7)
         t0 = tmax.replace(hour=0, minute=0, second=0)
         xts = [t0 - timedelta(days=7*i) for i in range(ndays)][::-1]
         lxts = [xt.strftime('%d %b').lstrip('0') for xt in xts]
-    elif dt < 365.25*24*3600:
+    elif dti < 365.25*24*3600 or override == 3:
         t0 = tmax.replace(day=1, hour=0, minute=0, second=0)
         du = relativedelta(months=2)
         nmonths = int(np.ceil(dt/(24*3600*365.25/12)))
         xts = [t0 - i*du for i in range(nmonths)][::-1]
         lxts = [xt.strftime('%b') for xt in xts]
-    elif dt < 2*365.25*24*3600:
+    elif dti < 2*365.25*24*3600 or override == 4:
         t0 = tmax.replace(day=1, hour=0, minute=0, second=0)
         du = relativedelta(months=2)
         nmonths = int(np.ceil(dt/(24*3600*365.25/12))/2)+1
