@@ -1962,6 +1962,8 @@ def get_data_for_day(i,t0,station):
     except (ObsPyMSEEDFilesizeTooSmallError,FDSNNoDataException) as e:
         try:
             WIZ = client_nrt.get_waveforms('NZ',station, "10", "HHZ", t0+i*daysec, t0 + (i+1)*daysec)
+            WIZ.remove_sensitivity(inventory=site)
+            data = WIZ.traces[0].data
         except FDSNNoDataException:
             return
 
