@@ -1,6 +1,6 @@
 import os, sys, traceback, yagmail, shutil, argparse
 sys.path.insert(0, os.path.abspath('..'))
-from whakaari import TremorData, ForecastModel, to_nztimezone, datetimeify, load_dataframe
+from whakaari import TremorData, ForecastModel, to_nztimezone, datetimeify, load_dataframe, save_dataframe
 from datetime import timedelta, datetime
 from subprocess import Popen, PIPE
 from pathlib import Path
@@ -261,6 +261,9 @@ class Controller(object):
                 current_forecast_err_count = 0
                 shutil.copyfile('current_forecast.png','/var/www/html/current_forecast.png')
 
+            if os.path.isfile('vulcano.png'):
+                shutil.copyfile('current_forecast.png','/var/www/html/vulcano.png')
+
             # send alerts
             self.alert.send_email_alerts()
 
@@ -423,6 +426,61 @@ def update_forecast_v2():
         fp.close()
         return
 
+def update_forecast_v3():
+    ''' Update model forecast.
+    '''
+    try:
+        # pull the latest data from GeoNet
+        td = TremorData(station='WIZ')
+        td.update()
+    except Exception:
+        fp = open('update_geonet.err','w')
+        fp.write('{:s}\n'.format(traceback.format_exc()))
+        fp.close()
+        return
+
+    try:
+
+        # model from 2011 to present day (td.tf)
+        data_streams = ['zsc2_rsamF','zsc2_mfF','zsc2_hfF','zsc2_dsarF']
+        fm = ForecastModel(ti='2011-01-01', tf=td.tf, window=2, overlap=0.75, station='WIZ', 
+            look_forward=2, data_streams=data_streams, root='online_forecaster_WIZ',savefile_type='pkl')
+        
+        # The online forecaster is trained using all eruptions in the dataset. It only
+        # needs to be trained once, or again after a new eruption.
+        # (Hint: feature matrices can be copied from other models to avoid long recalculations
+        # providing they have the same window length and data streams. Copy and rename 
+        # to *root*_features.csv)
+        drop_features = ['linear_trend_timewise','agg_linear_trend']  
+        drop_features += ['*attr_"imag"*','*attr_"real"*','*attr_"angle"*']
+        freq_max = fm.dtw//fm.dt//4
+        drop_features += ['*fft_coefficient__coeff_{:d}*'.format(i) for i in range(freq_max+1, 2*freq_max+2)]
+        
+        fm.train(ti='2011-01-01', tf='2021-01-01', drop_features=drop_features, Ncl=500,
+            retrain=False, n_jobs=1)      
+        
+        # forecast from beginning of training period at high resolution
+        tf = datetime.utcnow()
+        ys = fm.hires_forecast(ti=TI, tf=fm.data.tf, recalculate=False, n_jobs=1)
+        
+        dashboard_v2(ys['consensus'], fm, 'current_forecast.png')
+
+        al = (ys['consensus'].values[ys.index>(tf-fm.dtf)] > THR)*1.
+        if len(al)==0:
+            in_alert = -1
+        else:
+            in_alert = int(np.max(al))
+        with open('alert.csv', 'w') as fp:                
+            fp.write('{:d}\n'.format(in_alert))
+
+        update_vulcano()
+            
+    except Exception:
+        fp = open('run_forecast.err','w')
+        fp.write('{:s}\n'.format(traceback.format_exc()))
+        fp.close()
+        return
+
 def dashboard_v2(ys,fm,save):
     # parameters
     threshold = 0.85
@@ -569,6 +627,117 @@ def dashboard_v2(ys,fm,save):
     plt.savefig(save, dpi=400)
     plt.close(f)
 
+def _update_vulcano():
+    td = TremorData(station="IVGP")
+    td.update()
+    fts = ['median','change_quantiles']   
+    fts2 = ['zsc2_dsarF__median','zsc2_dsarF__change_quantiles__f_agg_"var"__isabs_False__qh_0.6__ql_0.4']  
+    
+    fm_e1 = ForecastModel(window=2., overlap=1., station = 'IVGP',
+        look_forward=2., data_streams=['zsc2_dsarF'], savefile_type='csv')
+    fm_e1.compute_only_features=fts
+        
+    tf_e1 = fm_e1.data.df.index[-1]
+    ti_e1 = tf_e1 - 30*timedelta(days=1)+timedelta(seconds=600) #month
+
+    # extract features
+    if ti_e1.year != tf_e1.year:
+        ft_e1 = fm_e1._load_data(ti=ti_e1, tf=datetime(tf_e1.year,1,1), yr=ti_e1.year)
+        ft_e2 = fm_e1._load_data(ti=datetime(tf_e1.year,1,1), tf=tf_e1, yr=tf_e1.year)
+        ft_e1 = pd.concat([ft_e1,ft_e2])
+    else:
+        ft_e1 = fm_e1._load_data(ti=ti_e1, tf=tf_e1, yr=ti_e1.year)
+    # extract values to correlate 
+    ft_e1_t = ft_e1[0].index.values
+    ccs=[]
+    ftvs = []
+    for i,ft in enumerate(fts2):
+        ft_e1_v = ft_e1[0].loc[:,ft].values
+        # ft_e1_v = [ft_e1_v[i][0] for i in range(len(ft_e1_v))]    
+        cc = corr_with_precursor(ft_e1_v, prec_code=i+1, path_prec='.'+os.sep)
+        ccs.append(cc)
+        ftvs.append(ft_e1[0])
+
+    fl = 'cc.csv'
+    df = pd.DataFrame(np.array([ccs,]), columns=fts, index=np.array([tf_e1,]).T)
+    if os.path.isfile(fl):
+        cc=load_dataframe(fl,index_col='time', infer_datetime_format=True, parse_dates=['time'])
+        if cc.index[-1] != tf_e1:
+            cc = pd.concat([cc, df])
+    else:
+        cc = pd.DataFrame([], columns=fts)
+        cc = pd.concat([cc, df])
+    save_dataframe(cc,fl,index=True, index_label='time')
+
+    # set up figures and axes
+    f = plt.figure(figsize=(16,8))
+    ax1 = plt.axes([0.05, 0.55, 0.4, 0.36])
+    ax2 = plt.axes([0.05, 0.08, 0.4, 0.36])
+    ax3 = plt.axes([0.56, 0.55, 0.4, 0.36])
+    ax4 = plt.axes([0.56, 0.08, 0.4, 0.36])
+
+    rsam = fm_e1.data.get_data(ti_e1, tf_e1)['rsam']
+    dsar = fm_e1.data.get_data(ti_e1, tf_e1)['dsar']
+    # ax1.set_title('current Vulcano data')
+    ax1.plot(rsam.index, rsam.values*1.e-3,'k-', label='RSAM')
+    ax1_ = ax1.twinx()
+    ax1_.plot(dsar.index, dsar.values, 'b-')
+    ax1.plot([],[],'b-',label='DSAR')
+    tks, tls = get_ticks(ti_e1, tf_e1)
+    ax1.set_ylabel('RSAM [$\mu$m s$^{-1}$]')
+    ax1_.set_ylabel('DSAR [-]')    
+    ax1.set_title('Vulcano correlations - last updated {:s} (UTC)'.format(tf_e1.strftime('%H:%M, %d %b %Y')))
+    
+    ax2.set_title('Current Vulcano feature time series')
+    ax2.plot(ft_e1[0].index, ft_e1[0][fts2[0]].values, 'b-', label='DSAR median')
+    ax2_ = ax2.twinx()
+    ax2_.plot(ft_e1[0].index, ft_e1[0][fts2[1]].values, 'r-')
+    ax2.plot([],[],'r-', label='DSAR change quantiles')
+    ax2.set_xlim([ti_e1, tf_e1])
+    ax2.set_ylabel('DSAR median')
+    ax2_.set_ylabel('DSAR change quantiles')
+    
+    ax3.set_title('Vulcano 1-month correlations')
+    ax3.plot(cc.index, cc[fts[0]].values, 'b--', label='DSAR median')
+    ax3.axhline(0.6, color='b', linestyle=':', label='concern threshold')
+    ax3_ = ax3.twinx()
+    ax3_.plot(cc.index, cc[fts[1]].values, 'r--')
+    ax3_.axhline(0.29, color='r', linestyle=':', label='concern threshold')
+    ax3.plot([],[],'r--', label='DSAR change quantiles')
+    ax3.set_ylabel('DSAR median: Whakaari correlation')
+    ax3_.set_ylabel('DSAR change quantiles: Ruapehu correlation')
+    ax3.legend()
+
+    ft1 = np.loadtxt('./prec_WIZ_5_zsc2_dsarF__median.csv',skiprows=1,delimiter=',', usecols=1)
+    ft2 = np.loadtxt('prec_FWVZ_2_zsc2_dsarF__change_quantiles__f_agg_-var-__isabs_False__qh_0.6__ql_0.4.csv',skiprows=1,delimiter=',', usecols=1)
+
+    ax4.set_title('Features for prior Whakaari, Ruapehu eruptions')
+    ax4.plot(range(len(ft1)), ft1, 'b-', label='Whakaari 2019 DSAR median')
+    ax4_ = ax4.twinx()
+    ax4_.plot(range(len(ft2)), ft2, 'r-')
+    ax4.plot([],[],'r-', label='Ruapehu 2007 DSAR change quantiles')    
+    ax4.legend()
+    ax4.set_ylabel('DSAR median: Whakaari 2019')
+    ax4_.set_ylabel('DSAR change quantiles: Ruapehu 2007')
+    
+    for ax in [ax1,ax2]:
+        ax.set_xticks(tks)
+        ax.set_xticklabels(tls)
+        ax.legend()
+
+    plt.savefig('vulcano.png', dpi=300)
+    plt.close(f)
+
+def update_vulcano():
+    try:
+        _update_vulcano()
+    except:
+        fp = open('vulcano_forecast.err','w')
+        fp.write('{:s}\n'.format(traceback.format_exc()))
+        fp.close()
+        return
+
+
 def plot_dashboard(ys,ys0,fm,fm0,save):
     # parameters
     threshold = 0.8
@@ -582,7 +751,7 @@ def plot_dashboard(ys,ys0,fm,fm0,save):
     
     t = pd.to_datetime(ys.index.values)
     t0 = pd.to_datetime(ys0.index.values)
-    rsam = fm.data.get_data(t[0], t[-1])['rsam']
+    rsam = fm.data.get_data(ti_e1, t[-1])['rsam']
     trsam = rsam.index
     rsam0 = fm0.data.get_data(t0[0], t0[-1])['rsam']
     trsam0 = rsam0.index
@@ -883,9 +1052,119 @@ def is_iterable(x):
     except TypeError:
         return False
 
+ ## function for forcaster
+# function that received a month of a certain feature (1 month, every 10 min) and correlated predefined precursor 
+def corr_with_precursor(ts_ft, prec_code = None, path_prec = None):
+    '''
+    Correlation between known precursor (prec_code) and input time serie feature values (30 days).
+    The function calculates a 'Pearson' correlation coefficient between the two 30 days time series values.
+​
+    input:
+    ts_ft: feature values for 30 days (before eruption) euqlly space every 10 min.
+        type: numpy vector 
+        ts_ft required length: 4320
+    prec_code: precursor code
+        1: WIZ_5_zsc2_dsarF_median
+        2: FWVZ_3_zsc2_dsarF_ch_qt_var
+        type: integer
+​
+    output:
+    cc: correlation coeficient 
+        type: float
+​
+    Default:
+        prec_code: 1 ('WIZ_5_zsc2_dsarF_median')
+        path_prec: '..'+os.sep+'features'+os.sep+'correlations'+os.sep+'forecasting_from_single_feature'+os.sep
+​
+    Notes:
+    -  Requiered libraries: Numpy (as np), Pandas (as pd), os
+    -  Times are irrelevant. Correlation only uses feature values. 
+    '''
+    if not prec_code:
+        prec_code = 1
+    # import precursor 
+    if not path_prec:
+        path_prec =  '..'+os.sep+'features'+os.sep+'correlations'+os.sep+'forecasting_from_single_feature'+os.sep
+    
+    if prec_code == 1:
+        path = path_prec+'prec_WIZ_5_zsc2_dsarF__median.csv'
+    if prec_code == 2: 
+        path = path_prec+'prec_FWVZ_2_zsc2_dsarF__change_quantiles__f_agg_-var-__isabs_False__qh_0.6__ql_0.4.csv'
+    # import precursor 
+    prec_ts_ft = np.loadtxt(path,skiprows=1,delimiter=',', usecols=1)
+    # stack data
+    data = [ts_ft, prec_ts_ft]
+    arr_aux =  np.vstack((data)).T
+    # perform correlation 
+    df = pd.DataFrame(data=arr_aux)#, index=fm_aux.fM.index, columns=lab, dtype=None, copy=None)
+    df_corr = df.corr(method='pearson')
+    cc = np.round(df_corr.iloc[0,1],3)
+    # 
+    return cc
+
+def test_corr_with_precursor():
+    ## code for testing the function 
+    # select precursors (just one)
+    day = timedelta(days=1.)
+    id713 = True
+    id373 = False         
+    if id713: 
+        sta = 'WIZ'
+        erup = 4 # fifth 2019
+        ds = ['zsc2_dsarF']
+        ft = ['zsc2_dsarF__median']
+    if id373:
+        sta = 'FWVZ'
+        erup = 1 # 
+        ds = ['zsc2_dsarF']
+        ft = ['zsc2_dsarF__change_quantiles__f_agg_"var"__isabs_False__qh_0.6__ql_0.4']  
+    fts = ['median','change_quantiles']       
+        
+    # name of precursor file 
+    path = '..'+os.sep+'features'+os.sep+'correlations'+os.sep+'forecasting_from_single_feature'+os.sep
+    pre_fl_nm = path + 'prec'+'_'+sta+'_'+str(erup+1)+'_'+ft[0]+'.csv'
+    if sta == 'FWVZ':
+        ft[0] = ft[0].replace('"','-')
+    if id713: 
+        prec_nm = 'WIZ_5_zsc2_dsarF_median'
+        prec_code = 1
+    if id373:
+        prec_nm = 'FWVZ_3_zsc2_dsarF_ch_qt_var'
+        prec_code = 2
+    
+    ## testing function 
+    # load eruption data to be correlated
+    path_feat = '..'+os.sep+'features'+os.sep
+    fm_e1 = ForecastModel(window=2., overlap=1., station = 'IVGP',
+        look_forward=2., data_streams=ds, savefile_type='csv')
+    # initial and final time of interest for each station
+    tf_e1 = fm_e1.data.df.index[-1]
+    ti_e1 = tf_e1 - 30*day+timedelta(seconds=600) #month
+    # extract feature values 
+    if sta == 'FWVZ':
+        ft[0] = ft[0].replace('-','"')
+    # 
+    fm_e1.compute_only_features=fts
+    if ti_e1.year != tf_e1.year:
+        ft_e1 = fm_e1._load_data(ti=ti_e1, tf=datetime(tf_e1.year,1,1), yr=ti_e1.year)
+        ft_e2 = fm_e1._load_data(ti=datetime(tf_e1.year,1,1), tf=tf_e1, yr=tf_e1.year)
+        ft_e1 = pd.concat([ft_e1,ft_e2])
+    else:
+        ft_e1 = fm_e1._load_data(ti=ti_e1, tf=tf_e1, yr=ti_e1.year)
+    # extract values to correlate 
+    ft_e1_t = ft_e1[0].index.values
+    ft_e1_v = ft_e1[0].loc[:,ft].values
+    ft_e1_v = [ft_e1_v[i][0] for i in range(len(ft_e1_v))]
+    
+    ## run the function
+    cc = corr_with_precursor(ft_e1_v, prec_code = prec_code, path_prec = '.'+os.sep)
+    print(cc)
+
 def test():
-    td = TremorData(station="IVGP")
-    td.update()
+    # td = TremorData(station="IVGP")
+    # test_corr_with_precursor()
+    _update_vulcano()
+    # td.update()
     pass
 
 if __name__ == "__main__":  
@@ -895,8 +1174,8 @@ if __name__ == "__main__":
 
         Other options for experts.
     '''
-    test()
-    asdf
+    # test()
+    # asdf
     # set parameters (set to None to turn of emailing)
     keyfile = r'/home/rccuser/twitter_keys.txt'
     mail_from = 'noreply.whakaariforecaster@gmail.com'
@@ -921,7 +1200,7 @@ if __name__ == "__main__":
         controller = Controller(None, None, None, None, test=True)
         controller.run()
     elif args.m == 'update_forecast':
-        update_forecast_v2()
+        update_forecast_v3()
     elif args.m == 'update_forecast_test':
         update_forecast_test()
     elif args.m == 'plot_date':
