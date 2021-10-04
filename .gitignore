@@ -5,6 +5,7 @@ features/
 predictions/
 plots/
 controller/
+data/*.csv
 scripts/*.pkl
 !scripts/online_WIZ_isotonic_calibrator.pkl
 scripts/posteriors/

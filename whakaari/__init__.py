@@ -119,6 +119,9 @@ class TremorData(object):
             elif self.station in ['FWVZ','KRVZ']:
                 t0 = datetime(2006,1,1)
                 t1 = datetime(2006,1,2)
+            elif self.station.startswith("IV"):
+                t0 = datetime(2021,8,1)
+                t1 = datetime(2021,8,2)
             else:
                 raise ValueError("No file for {:s} - when should I start downloading?".format(self.station))
             self.update(t0,t1)
@@ -256,6 +259,7 @@ class TremorData(object):
         # parallel data collection - creates temporary files in ./_tmp
         pars = [[i,ti,self.station] for i in range(ndays)]
         n_jobs = self.n_jobs if n_jobs is None else n_jobs
+        get_data_for_day(*pars[0])
         p = Pool(n_jobs)
         p.starmap(get_data_for_day, pars)
         p.close()
@@ -1885,6 +1889,19 @@ def get_classifier(classifier):
     
     return model, grid
 
+def get_data_from_stream(st, site):  
+    if len(st.traces) == 0:
+        raise
+    elif len(st.traces) > 1:
+        try:
+            st.merge(fill_value='interpolate').traces[0]
+        except Exception:
+            st.interpolate(100).merge(fill_value='interpolate').traces[0]
+              
+    st.remove_sensitivity(inventory=site)
+    # st.detrend('linear')
+    return st.traces[0].data
+
 def get_data_for_day(i,t0,station):
     """ Download WIZ data for given 24 hour period, writing data to temporary file.
 
@@ -1899,8 +1916,13 @@ def get_data_for_day(i,t0,station):
     t0 = UTCDateTime(t0)
 
     # open clients
-    client = FDSNClient("GEONET")
-    client_nrt = FDSNClient('https://service-nrt.geonet.org.nz')
+    if station.startswith('IV'):
+        client = FDSNClient('https://webservices.ingv.it')
+        # client_nrt = FDSNClient('https://webservices.ingv.it')
+        client_nrt=client
+    else:
+        client = FDSNClient("GEONET")
+        client_nrt = FDSNClient('https://service-nrt.geonet.org.nz')
     
     daysec = 24*3600
     fbands = [[2, 5], [4.5, 8], [8,16]]
@@ -1916,11 +1938,25 @@ def get_data_for_day(i,t0,station):
         pass
 
     try:
-        WIZ = client.get_waveforms('NZ',station, "10", "HHZ", t0+i*daysec, t0 + (i+1)*daysec)
+        if station.startswith('IV'):
+            network = 'IV'
+            location = '*'            
+            WIZ = client.get_waveforms(network,station,location, "HHZ", t0+i*daysec, t0 + (i+1)*daysec)
+            data = get_data_from_stream(WIZ, site)
+            
+            # if less than 1 day of data, try different client
+            if len(data) < 600*100:
+                raise FDSNNoDataException('')
+        else:
+            network = 'NZ'
+            location = '10'
+            WIZ = client.get_waveforms(network,station,location, "HHZ", t0+i*daysec, t0 + (i+1)*daysec)
         
-        # if less than 1 day of data, try different client
-        if len(WIZ.traces[0].data) < 600*100:
-            raise FDSNNoDataException('')
+            # if less than 1 day of data, try different client
+            if len(WIZ.traces[0].data) < 600*100:
+                raise FDSNNoDataException('')
+            WIZ.remove_sensitivity(inventory=site)
+            data = WIZ.traces[0].data
     except (ObsPyMSEEDFilesizeTooSmallError,FDSNNoDataException) as e:
         try:
             WIZ = client_nrt.get_waveforms('NZ',station, "10", "HHZ", t0+i*daysec, t0 + (i+1)*daysec)
@@ -1928,8 +1964,6 @@ def get_data_for_day(i,t0,station):
             return
 
     # process frequency bands
-    WIZ.remove_sensitivity(inventory=site)
-    data = WIZ.traces[0].data
     dataI = cumtrapz(data, dx=1./100, initial=0)
     ti = WIZ.traces[0].meta['starttime']
         # round start time to nearest 10 min increment
