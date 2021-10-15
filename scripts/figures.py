@@ -3,7 +3,7 @@ from matplotlib import pyplot as plt
 
 import os, sys, shutil, gc
 sys.path.insert(0, os.path.abspath('..'))
-from whakaari import ForecastModel
+from whakaari import ForecastModel, TremorData
 from datetime import timedelta, datetime
 
 # tsfresh and sklearn dump a lot of warnings - these are switched off below, but should be
@@ -58,5 +58,16 @@ def fig_2016eruption():
         with open(r'{:s}/confidence.txt'.format(fm.plotdir), 'w') as fp:
             fp.write('{:4.3f}, {:4.3f}'.format(conf, conf0))
 
+def ffm():
+    td = TremorData()
+    f,ax = plt.subplots(1,1)
+    day = timedelta(days=1)*10
+    te = td.tes[2]
+    t = td.df.index[(td.df.index>(te-day))&(td.df.index<te)]
+    d = td.df['rsam'][(td.df.index>(te-day))&(td.df.index<te)]
+    ax.plot(t,1./d.values, 'k.')
+    plt.show()
+
 if __name__ == "__main__":
-    fig_2016eruption()
+    # fig_2016eruption()
+    ffm()
