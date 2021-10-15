@@ -198,46 +198,6 @@ class TremorData(object):
             # pd.DataFrame(zip(*datas), columns=columns, index=pd.Series(time))
             df = pd.DataFrame(columns=cols)
             df.to_csv(self.file, index_label='time')
-
-            # if self.station == 'WIZ':
-            #     t0 = datetime(2011,1,1)
-            #     t1 = datetime(2011,1,2)
-            # elif self.station == 'WSRZ':
-            #     t0 = datetime(2013,5,1)
-            #     t1 = datetime(2013,5,2)
-            # elif self.station == 'FWVZ':
-            #     t0 = datetime(2006,1,3)
-            #     t1 = datetime(2006,1,4)
-            # elif self.station == 'KRVZ':
-            #     t0 = datetime(2006,1,2)
-            #     t1 = datetime(2006,1,3)
-            # elif self.station == 'PV6':
-            #     t0 = datetime(2010,1,2)
-            #     t1 = datetime(2010,1,3)
-            # elif self.station == 'PVV':
-            #     t0 = datetime(2014,1,1)
-            #     t1 = datetime(2014,1,2)
-            # elif self.station == 'BELO':
-            #     t0 = datetime(2007,1,1)
-            #     t1 = datetime(2007,1,2)
-            # elif self.station == 'OKWR':
-            #     t0 = datetime(2008,1,1)
-            #     t1 = datetime(2008,1,2)
-            # elif self.station == 'VNSS':
-            #     t0 = datetime(2013,1,1)
-            #     t1 = datetime(2013,1,2)
-            # elif self.station == 'SSLW':
-            #     t0 = datetime(2014,1,1)
-            #     t1 = datetime(2014,1,2)
-            # elif self.station == 'CRPO':
-            #     t0 = datetime(2016,1,1)
-            #     t1 = datetime(2016,1,2)
-            # elif self.station == 'REF':
-            #     t0 = datetime(2006,1,1)
-            #     t1 = datetime(2006,1,2)
-            # else:
-            #     raise ValueError("No file for {:s} - when should I start downloading?".format(self.station))
-            # self.update(t0,t1)
         # check date of latest data in file
         self.df = load_dataframe(self.file, index_col=0, parse_dates=[0,], infer_datetime_format=True)
         if len(self.df.index)>0:
@@ -420,7 +380,7 @@ class TremorData(object):
         # parallel data collection - creates temporary files in ./_tmp
         pars = [[i,ti,self.station] for i in range(ndays)]
         n_jobs = self.n_jobs if n_jobs is None else n_jobs   
-        if False: # serial 
+        if n_jobs == 1: # serial 
             print('Station '+self.station+': Downloading data in serial')
             for par in pars:
                 print(str(par[0]+1)+'/'+str(len(pars)))
@@ -1094,7 +1054,7 @@ class ForecastModel(object):
         else:
             # drop features if relevant
             _ = [cfp.pop(df) for df in self.drop_features if df in list(cfp.keys())]
-        kw = {'column_id':'id', 'n_jobs':0,
+        kw = {'column_id':'id', 'n_jobs':4,
             'default_fc_parameters':cfp, 'impute_function':impute}
         # construct_windows/extract_features for subsets
         df, wd = self._construct_windows(Nw, ti, ds, indx = indx)
@@ -2219,22 +2179,18 @@ def get_classifier(classifier):
     
     return model, grid
 
-def get_data_from_stream(st, site):    
-    try:
-        st.remove_sensitivity(inventory=site)
-    except:
-        return None
-    st.detrend('linear')
+def get_data_from_stream(st, site):  
     if len(st.traces) == 0:
         raise
-    elif len(st.traces) == 1:
-        data=st.traces[0].data
-    else:
+    elif len(st.traces) > 1:
         try:
-            data=st.merge(fill_value='interpolate').traces[0].data
+            st.merge(fill_value='interpolate').traces[0]
         except Exception:
-            data=st.interpolate(100).merge(fill_value='interpolate').traces[0].data
-    return data
+            st.interpolate(100).merge(fill_value='interpolate').traces[0]
+              
+    st.remove_sensitivity(inventory=site)
+    # st.detrend('linear')
+    return st.traces[0].data
 
 def get_data_for_day(i,t0,station):
     """ Download WIZ data for given 24 hour period, writing data to temporary file.
@@ -2300,7 +2256,7 @@ def get_data_for_day(i,t0,station):
         except (FDSNNoDataException,ValueError,FDSNException):
             return
 
-    st.taper(max_percentage=0.05, type="hann")
+    # st.taper(max_percentage=0.05, type="hann")
     if D>1:
         st.decimate(D)
         F=F//D
@@ -2316,7 +2272,6 @@ def get_data_for_day(i,t0,station):
     else:
         i1 += i0
     # process frequency bands
-    #st.filter('bandpass', freqmin=8, freqmax=16)
     dataI = cumtrapz(data, dx=1./F, initial=0)
     dataI -= dataI[i0]
     ti = st.traces[0].meta['starttime']+timedelta(seconds=(i0+1)/F)

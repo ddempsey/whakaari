@@ -33,8 +33,8 @@ def extract_all():
         'diff_zsc2_rmarF','log_zsc2_vlfF','log_zsc2_lfF','log_zsc2_vlarF','log_zsc2_lrarF','log_zsc2_rmarF']
     #ds = ['log_zsc2_rsamF', 'zsc2_hfF']
     ## stations
-    ss = ['KRVZ','FWVZ','WIZ','PVV','VNSS','SSLW','REF','OKWR','BELO']
-    ss = ['OKWR','VNSS']
+    ss = ['KRVZ','FWVZ','WIZ','PVV','BELO','OKWR','VNSS','SSLW','REF']
+    ss = ['VNSS']
     #ss = ['PV6']
     ## window sizes (days)
     ws = [2.] #, 14., 90., 365.]
@@ -44,10 +44,11 @@ def extract_all():
     for s in ss:
         for d in ds:
             for w in ws:
-                ps.append([w,s,d])
-    n_jobs = 32 # number of cores
-    p = Pool(n_jobs)
-    p.map(extract_one, ps)
+                extract_one([w,s,d])
+                #ps.append([w,s,d])
+    #n_jobs = 32 # number of cores
+    #p = Pool(n_jobs)
+    #p.map(extract_one, ps)
 
 def extract_vulcano():
     fm = ForecastModel(window=2., overlap=1., station='AUS', look_forward=2., data_streams=['zsc2_dsarF'],
@@ -150,12 +151,24 @@ def probe():
     ax.plot(st.traces[0].data[i0:i0+i1])
     plt.show()
 
+def check_ratios():
+    fm = ForecastModel(window=2, overlap=1, station = 'WIZ',
+        look_forward=2., data_streams=['zsc2_rmarF'], savefile_type='pkl',
+        feature_dir=r'U:\Research\EruptionForecasting\eruptions\features')
+    from datetime import timedelta
+    month = timedelta(days=365.25/12)
+    f, axs = plt.subplots(5,1)
+    for te,ax in zip(fm.data.tes,axs):
+        fM,ys = fm._load_data(te-month, te, None) 
+        ax.plot(fM.index, fM['zsc2_rmarF__median'], 'k-')
+        
+    plt.show()
+
+
 if __name__ == "__main__":
     #forecast_dec2019()
     #forecast_test()
-    #extract_all()
-    #download_all()
-    extract_vulcano()
-    # probe()
-    #forecast_now()
+    # download_all()
+    check_ratios()
+    # extract_all()
     
