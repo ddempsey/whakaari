@@ -1,4 +1,4 @@
-import os, sys
+import os, sys, shutil, traceback
 sys.path.insert(0, os.path.abspath('..'))
 from whakaari import TremorData, ForecastModel, load_dataframe, datetimeify
 from datetime import timedelta, datetime
@@ -16,6 +16,8 @@ warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=FitFailedWarning)
 
+from obspy import UTCDateTime
+
 def extract_all():
     ''' Load data and calculate features in parallel for multiple stations, multiple datastreams, and multiple window sizes.
         Overlap is set to 1.0 (max) 
@@ -31,7 +33,8 @@ def extract_all():
         'diff_zsc2_rmarF','log_zsc2_vlfF','log_zsc2_lfF','log_zsc2_vlarF','log_zsc2_lrarF','log_zsc2_rmarF']
     #ds = ['log_zsc2_rsamF', 'zsc2_hfF']
     ## stations
-    ss = ['KRVZ','FWVZ','WIZ','PVV','BELO','OKWR','VNSS','SSLW','REF']
+    ss = ['KRVZ','FWVZ','WIZ','PVV','VNSS','SSLW','REF','OKWR','BELO']
+    ss = ['OKWR','VNSS']
     #ss = ['PV6']
     ## window sizes (days)
     ws = [2.] #, 14., 90., 365.]
@@ -45,6 +48,12 @@ def extract_all():
     n_jobs = 32 # number of cores
     p = Pool(n_jobs)
     p.map(extract_one, ps)
+
+def extract_vulcano():
+    fm = ForecastModel(window=2., overlap=1., station='AUS', look_forward=2., data_streams=['zsc2_dsarF'],
+            feature_dir='/media/eruption_forecasting/eruptions/features/', savefile_type='pkl')
+    fm.compute_only_features=['median']
+    fm._load_data(fm.data.df.index[0], fm.data.df.index[-1],None)
 
 def extract_one(p):
     ''' Load data from a certain station, window size, and datastream (auxiliary function for parallelization)
@@ -64,22 +73,46 @@ def extract_one(p):
     #    look_forward=2., data_streams=[d], feature_dir='/media/eruption_forecasting/eruptions/features/', savefile_type='pkl') 
     fm = ForecastModel(window=w, overlap=o, station = s,
         look_forward=2., data_streams=[d], feature_dir='/media/eruption_forecasting/eruptions/features/', savefile_type='pkl')
-    fm._load_data(datetimeify(fm.ti_model), datetimeify(fm.tf_model), None)
+    from datetime import timedelta
+    month = timedelta(days=365.25/12.)
+    for te in fm.data.tes:
+        try:
+            fm._load_data(te-2*month,te+month, None)
+        except:
+            pass
 
 def download_all():
     from datetime import timedelta
-    stations = ['BELO','SSLW','REF','PVV']
+    stations = ['VNSS','OKWR']
+    stations=['AUS']
     dt = timedelta(days=64.)
     for station in stations:
-        td = TremorData(station=station)
-        ti = td._probe_start()
-        N = int(np.ceil((datetime.today()-ti._get_datetime())/dt))
-        for i in range(N):
-            t0=ti+i*dt
-            t1=ti+(i+1)*dt
-            if t1>datetime.today():
-                t1 = datetime.today()
-            td.update(t0, t1, n_jobs=32)
+        try:
+            td = TremorData(station=station)
+            ti = td._probe_start()
+            if station == 'WIZ': ti = UTCDateTime(datetimeify('2008-01-01'))
+            if station == 'OKWR': ti = UTCDateTime(datetimeify('2008-01-01'))
+            if station == 'VNSS': ti = UTCDateTime(datetimeify('2013-01-01'))
+            if station == 'AUS': ti = UTCDateTime(datetimeify('2005-11-01'))
+            if td.tf is not None:
+                from copy import deepcopy
+                ti = UTCDateTime(deepcopy(td.tf))
+            N = int(np.ceil((datetime.today()-ti._get_datetime())/dt))
+            for i in range(N):
+                t0=ti+i*dt
+                t1=ti+(i+1)*dt
+                if t1>datetime.today():
+                    t1 = datetime.today()
+                td.update(t0, t1, n_jobs=32)
+        except:
+            with open('{:s}_download.err'.format(station),'w') as fp:
+                fp.write(str(traceback.format_exc())+'\n')
+                fp.write(str(sys.exc_info()[0]))
+            try:
+                shutil.rmtree('_tmp')
+            except:
+                pass
+            pass
 
 def probe():
     # from obspy.clients.fdsn import Client as FDSNClient 
@@ -117,12 +150,12 @@ def probe():
     ax.plot(st.traces[0].data[i0:i0+i1])
     plt.show()
 
-
 if __name__ == "__main__":
     #forecast_dec2019()
     #forecast_test()
-    download_all()
-    extract_all()
+    #extract_all()
+    #download_all()
+    extract_vulcano()
     # probe()
     #forecast_now()
     

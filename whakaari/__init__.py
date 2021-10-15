@@ -129,8 +129,24 @@ STATIONS = {
         'nrt_name':'https://service.iris.edu',
         'channel':'HHZ',
         'network':'OV'
-        }
+        },
+    'IVGP':{
+            'client_name':'https://webservices.ingv.it',
+            'nrt_name':'https://webservices/ingv.it',
+            'channel':'HHZ',
+            'network':'IV',
+            'location':'*'
+            },
+    'AUS':{
+            'client_name':'IRIS',
+            'nrt_name':'https://service.iris.edu',
+            'channel':'EHZ',
+            'network':'AV',
+            'location':'*',
+            }
     }
+
+
 RATIO_NAMES=['vlar','lrar','rmar','dsar']
 BANDS = ['vlf','lf','rsam','mf','hf']
 class TremorData(object):
@@ -2204,7 +2220,10 @@ def get_classifier(classifier):
     return model, grid
 
 def get_data_from_stream(st, site):    
-    st.remove_sensitivity(inventory=site)
+    try:
+        st.remove_sensitivity(inventory=site)
+    except:
+        return None
     st.detrend('linear')
     if len(st.traces) == 0:
         raise
@@ -2238,6 +2257,10 @@ def get_data_for_day(i,t0,station):
     F = 100 # frequency
     D = 4   # decimation factor
     S = STATIONS[station]
+    try:
+        S['location']
+    except KeyError:
+        S['location']=None
 
     attempts = 0    
     while True:
@@ -2258,22 +2281,23 @@ def get_data_for_day(i,t0,station):
     columns = []
     try:
         site = client.get_stations(starttime=t0+i*daysec, endtime=t0 + (i+1)*daysec, station=station, level="response", channel=S['channel'])
-    except FDSNNoDataException:
-        pass
+    except (FDSNNoDataException, FDSNException):
+        return
 
     pad_f=0.2
     try:
-        st = client.get_waveforms(S['network'],station, None, S['channel'], t0+(i-pad_f)*daysec, t0 + (i+1+pad_f)*daysec)
+        st = client.get_waveforms(S['network'],station, S['location'], S['channel'], t0+(i-pad_f)*daysec, t0 + (i+1+pad_f)*daysec)
         
         # if less than 1 day of data, try different client
         data = get_data_from_stream(st, site)
+        if data is None: return
         if len(data) < 600*F:
             raise FDSNNoDataException('')
-    except (ObsPyMSEEDFilesizeTooSmallError,FDSNNoDataException) as e:
+    except (ObsPyMSEEDFilesizeTooSmallError,FDSNNoDataException,FDSNException) as e:
         try:
-            st = client_nrt.get_waveforms(S['network'],station, "10", S['channel'], t0+(i-pad_f)*daysec, t0 + (i+1+pad_f)*daysec)
+            st = client_nrt.get_waveforms(S['network'],station, S['location'], S['channel'], t0+(i-pad_f)*daysec, t0 + (i+1+pad_f)*daysec)
             data = get_data_from_stream(st, site)
-        except FDSNNoDataException:
+        except (FDSNNoDataException,ValueError,FDSNException):
             return
 
     st.taper(max_percentage=0.05, type="hann")
@@ -2292,7 +2316,7 @@ def get_data_for_day(i,t0,station):
     else:
         i1 += i0
     # process frequency bands
-    st.filter('bandpass', freqmin=8, freqmax=16)
+    #st.filter('bandpass', freqmin=8, freqmax=16)
     dataI = cumtrapz(data, dx=1./F, initial=0)
     dataI -= dataI[i0]
     ti = st.traces[0].meta['starttime']+timedelta(seconds=(i0+1)/F)
