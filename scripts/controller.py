@@ -1244,7 +1244,7 @@ if __name__ == "__main__":
 
         Other options for experts.
     '''
-    test()
+    #test()
     # asdf
     # set parameters (set to None to turn of emailing)
     # keyfile = r'/home/rccuser/twitter_keys.txt'
@@ -1256,21 +1256,21 @@ if __name__ == "__main__":
     # # forecast alert emails (set to None to turn of emailing)
     # alert_mail_to_file = r'/home/rccuser/whakaari_alert_mail_to.txt'
     
-    # parser = argparse.ArgumentParser()
-    # parser.add_argument("-m", 
-    #     type=str,
-    #     default='controller',
-    #     help="flag indicating how controller is to run")
-    # args = parser.parse_args()
-    # if args.m == 'controller':
-    #     controller = Controller(None, None, None, keyfile, test=False)
-    #     controller = Controller(mail_from, monitor_mail_to_file, alert_mail_to_file, keyfile, test=False)
-    #     controller.run()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-m", 
+        type=str,
+        default='controller',
+        help="flag indicating how controller is to run")
+    args = parser.parse_args()
+    if args.m == 'controller':
+        controller = Controller(None, None, None, keyfile, test=False)
+    #    controller = Controller(mail_from, monitor_mail_to_file, alert_mail_to_file, keyfile, test=False)
+        controller.run()
     # elif args.m == 'controller-test':
     #     controller = Controller(None, None, None, None, test=True)
     #     controller.run()
-    # elif args.m == 'update_forecast':
-    #     update_forecast_v3()
+    elif args.m == 'update_forecast':
+        update_forecast_v3()
     # elif args.m == 'update_forecast_test':
     #     update_forecast_test()
     # elif args.m == 'plot_date':
