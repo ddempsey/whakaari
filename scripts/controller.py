@@ -1197,10 +1197,43 @@ def test_corr_with_precursor():
     cc = corr_with_precursor(ft_e1_v, prec_code = prec_code, path_prec = '.'+os.sep)
     print(cc)
 
+def probability():
+    month = timedelta(days=30)
+    th = 0.7
+    look_back = 1.
+    ccs=[]
+    for station in ['FWVZ','WIZ','VNSS']:
+        fl = 'WIZ_5_zsc2_dsarF__median_over_{:s}.csv'.format(station)
+        cc = load_dataframe(fl,index_col='endtime', infer_datetime_format=True, parse_dates=['endtime'])
+        td=TremorData(station=station)
+        if station == 'WIZ':
+            td.tes[2] = datetimeify('2013-10-11 07:09:00')
+    
+        cc['post']=0.*cc['cc']
+        cc['pre']=0.*cc['cc']
+        for te in td.tes:
+            cc['post'][(cc.index>te)&(cc.index<(te+month))] = 1
+            cc['pre'][(cc.index<te)&(cc.index>(te-look_back*month))] = 1
+        ccs.append(cc)
+
+        N_cc_th = ((cc['cc']>th)&cc['pre']).sum()
+        N_cc_post = ((cc['cc']>th)&cc['post']).sum()
+        N_cc_tot = ((cc['cc']>th)).sum()
+        P = N_cc_th/(N_cc_tot-N_cc_post)
+        print(station, P, N_cc_th, N_cc_post, N_cc_tot)
+
+    cc = pd.concat(ccs)
+    N_cc_th = ((cc['cc']>th)&cc['pre']).sum()
+    N_cc_post = ((cc['cc']>th)&cc['post']).sum()
+    N_cc_tot = ((cc['cc']>th)).sum()
+    P = N_cc_th/(N_cc_tot-N_cc_post)
+    print('combined', P, N_cc_th, N_cc_post, N_cc_tot)
+
 def test():
     # td = TremorData(station="IVGP")
     # test_corr_with_precursor()
     _update_vulcano()
+    # probability()
     # td.update()
     pass
 
@@ -1211,38 +1244,38 @@ if __name__ == "__main__":
 
         Other options for experts.
     '''
-    # test()
+    test()
     # asdf
     # set parameters (set to None to turn of emailing)
-    keyfile = r'/home/rccuser/twitter_keys.txt'
-    mail_from = 'noreply.whakaariforecaster@gmail.com'
+    # keyfile = r'/home/rccuser/twitter_keys.txt'
+    # mail_from = 'noreply.whakaariforecaster@gmail.com'
     
-    # heartbeat and error raising emails (set to None to turn of emailing)
-    monitor_mail_to_file = r'/home/rccuser/whakaari_monitor_mail_to.txt'
+    # # heartbeat and error raising emails (set to None to turn of emailing)
+    # monitor_mail_to_file = r'/home/rccuser/whakaari_monitor_mail_to.txt'
     
-    # forecast alert emails (set to None to turn of emailing)
-    alert_mail_to_file = r'/home/rccuser/whakaari_alert_mail_to.txt'
+    # # forecast alert emails (set to None to turn of emailing)
+    # alert_mail_to_file = r'/home/rccuser/whakaari_alert_mail_to.txt'
     
-    parser = argparse.ArgumentParser()
-    parser.add_argument("-m", 
-        type=str,
-        default='controller',
-        help="flag indicating how controller is to run")
-    args = parser.parse_args()
-    if args.m == 'controller':
-        controller = Controller(None, None, None, keyfile, test=False)
-        controller = Controller(mail_from, monitor_mail_to_file, alert_mail_to_file, keyfile, test=False)
-        controller.run()
-    elif args.m == 'controller-test':
-        controller = Controller(None, None, None, None, test=True)
-        controller.run()
-    elif args.m == 'update_forecast':
-        update_forecast_v3()
-    elif args.m == 'update_forecast_test':
-        update_forecast_test()
-    elif args.m == 'plot_date':
-        plot_date('2020-09-18')
-        plot_date('2020-09-03') 
-    elif args.m == 'rebuild_hires_features':
-        rebuild_hires_features()
+    # parser = argparse.ArgumentParser()
+    # parser.add_argument("-m", 
+    #     type=str,
+    #     default='controller',
+    #     help="flag indicating how controller is to run")
+    # args = parser.parse_args()
+    # if args.m == 'controller':
+    #     controller = Controller(None, None, None, keyfile, test=False)
+    #     controller = Controller(mail_from, monitor_mail_to_file, alert_mail_to_file, keyfile, test=False)
+    #     controller.run()
+    # elif args.m == 'controller-test':
+    #     controller = Controller(None, None, None, None, test=True)
+    #     controller.run()
+    # elif args.m == 'update_forecast':
+    #     update_forecast_v3()
+    # elif args.m == 'update_forecast_test':
+    #     update_forecast_test()
+    # elif args.m == 'plot_date':
+    #     plot_date('2020-09-18')
+    #     plot_date('2020-09-03') 
+    # elif args.m == 'rebuild_hires_features':
+    #     rebuild_hires_features()
     
