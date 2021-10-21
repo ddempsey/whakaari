@@ -132,7 +132,7 @@ STATIONS = {
         },
     'IVGP':{
             'client_name':'https://webservices.ingv.it',
-            'nrt_name':'https://webservices/ingv.it',
+            'nrt_name':'https://webservices.ingv.it',
             'channel':'HHZ',
             'network':'IV',
             'location':'*'
