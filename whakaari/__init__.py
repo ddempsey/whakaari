@@ -2216,7 +2216,7 @@ def get_data_for_day(i,t0,station):
     frs = [200,200,200, 100, 50]
 
     F = 100 # frequency
-    D = 4   # decimation factor
+    D = 1   # decimation factor
     S = STATIONS[station]
     try:
         S['location']
@@ -2245,7 +2245,7 @@ def get_data_for_day(i,t0,station):
     except (FDSNNoDataException, FDSNException):
         return
 
-    pad_f=0.2
+    pad_f=0.1
     try:
         st = client.get_waveforms(S['network'],station, S['location'], S['channel'], t0+(i-pad_f)*daysec, t0 + (i+1+pad_f)*daysec)
         
@@ -2254,7 +2254,7 @@ def get_data_for_day(i,t0,station):
         if data is None: return
         if len(data) < 600*F:
             raise FDSNNoDataException('')
-    except (ObsPyMSEEDFilesizeTooSmallError,FDSNNoDataException,FDSNException) as e:
+    except (ValueError,ObsPyMSEEDFilesizeTooSmallError,FDSNNoDataException,FDSNException) as e:
         try:
             st = client_nrt.get_waveforms(S['network'],station, S['location'], S['channel'], t0+(i-pad_f)*daysec, t0 + (i+1+pad_f)*daysec)
             data = get_data_from_stream(st, site)
@@ -2292,8 +2292,6 @@ def get_data_for_day(i,t0,station):
     for (fmin,fmax),fr in zip(fbands,frs):
         _data = abs(bandpass(data, fmin, fmax, F)[i0:i1])*1.e9
         _dataI = abs(bandpass(dataI, fmin, fmax, F)[i0:i1])*1.e9
-        # _data[:fr] = np.mean(_data[fr:600])
-        # _dataI[:fr] = np.mean(_dataI[fr:600])
         _datas.append(_data)
         _dataIs.append(_dataI)
     
