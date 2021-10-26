@@ -84,8 +84,9 @@ def extract_one(p):
 
 def download_all():
     from datetime import timedelta
-    stations = ['VNSS','OKWR']
-    stations=['AUS']
+    stations = ['WIZ','WSRZ','FWVZ','KRVZ','IVGP','BELO','REF','SSLW','VNSS','OKWR']
+#    stations = ['FWVZ','BELO','REF','SSLW','VNSS','OKWR']
+    stations=['PVV']
     dt = timedelta(days=64.)
     for station in stations:
         try:
@@ -95,6 +96,9 @@ def download_all():
             if station == 'OKWR': ti = UTCDateTime(datetimeify('2008-01-01'))
             if station == 'VNSS': ti = UTCDateTime(datetimeify('2013-01-01'))
             if station == 'AUS': ti = UTCDateTime(datetimeify('2005-11-01'))
+            if station == 'IVGP': ti = UTCDateTime(datetimeify('2019-08-10'))
+            if station == 'FWVZ': ti = UTCDateTime(datetimeify('2005-06-01'))
+            if station == 'PVV': ti = UTCDateTime(datetimeify('2014-01-01'))
             if td.tf is not None:
                 from copy import deepcopy
                 ti = UTCDateTime(deepcopy(td.tf))
@@ -168,7 +172,7 @@ def check_ratios():
 if __name__ == "__main__":
     #forecast_dec2019()
     #forecast_test()
-    # download_all()
-    check_ratios()
+    download_all()
+    #check_ratios()
     # extract_all()
     
