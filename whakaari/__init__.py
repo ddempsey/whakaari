@@ -170,11 +170,16 @@ class TremorData(object):
         plot
             Plot tremor data.
     """
-    def __init__(self, station='WIZ', parent=None):
+    def __init__(self, station='WIZ', parent=None, data_dir=None):
         self.station = station
         self.n_jobs = 6
         self.parent = parent
-        self.file = os.sep.join(getfile(currentframe()).split(os.sep)[:-2]+['data','{:s}_tremor_data.csv'.format(station)])
+        self.data_dir = data_dir
+        if self.data_dir is not None:
+            self._wd = lambda x: os.sep.join([self.data_dir,x])
+        else:
+            self._wd = lambda x: os.sep.join(getfile(currentframe()).split(os.sep)[:-2]+['data',x])
+        self.file = self._wd('{:s}_tremor_data.csv'.format(station))
         self._assess()
     def __repr__(self):
         if self.exists:
@@ -189,7 +194,7 @@ class TremorData(object):
         """ Load existing file and check date range of data.
         """
         # get eruptions
-        with open(os.sep.join(getfile(currentframe()).split(os.sep)[:-2]+['data',self.station+'_eruptive_periods.txt']),'r') as fp:
+        with open(self._wd(self.station+'_eruptive_periods.txt'),'r') as fp:
             self.tes = [datetimeify(ln.rstrip()) for ln in fp.readlines()]
         # check if data file exists
         self.exists = os.path.isfile(self.file)
@@ -772,7 +777,7 @@ class ForecastModel(object):
     """
     def __init__(self, window, overlap, look_forward, exclude_dates=[], station=None, ti=None, tf=None, 
         data_streams=['rsam','mf','hf','dsar'], root=None, savefile_type='pkl', feature_root=None, 
-        feature_dir=None):
+        feature_dir=None, data_dir=None):
         self.window = window
         self.overlap = overlap
         if station is None:
@@ -781,7 +786,7 @@ class ForecastModel(object):
         self.exclude_dates = exclude_dates
         self.look_forward = look_forward
         self.data_streams = data_streams
-        self.data = TremorData(self.station, parent=self)
+        self.data = TremorData(self.station, parent=self, data_dir=data_dir)
         if any(['_' in ds for ds in data_streams]):
             self.data._compute_transforms()
         if any([d not in self.data.df.columns for d in self.data_streams]):
