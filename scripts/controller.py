@@ -677,8 +677,8 @@ def _update_vulcano():
     ax3 = plt.axes([0.54, 0.57, 0.4, 0.36])
     ax4 = plt.axes([0.54, 0.08, 0.4, 0.36])
 
-    rsam = fm_e1.data.get_data(ti_e1, tf_e1)['rsam']
-    dsar = fm_e1.data.get_data(ti_e1, tf_e1)['dsar']
+    rsam = fm_e1.data.get_data(ti_e1, tf_e1)['rsamF']
+    dsar = fm_e1.data.get_data(ti_e1, tf_e1)['dsarF']
     # ax1.set_title('current Vulcano data')
     ax1.plot(rsam.index, rsam.values*1.e-3,'k-', lw=0.5, label='RSAM')
     ax1_ = ax1.twinx()
@@ -1247,14 +1247,14 @@ if __name__ == "__main__":
     #test()
     # asdf
     # set parameters (set to None to turn of emailing)
-    # keyfile = r'/home/rccuser/twitter_keys.txt'
-    # mail_from = 'noreply.whakaariforecaster@gmail.com'
+    keyfile = r'/home/rccuser/twitter_keys.txt'
+    mail_from = 'noreply.whakaariforecaster@gmail.com'
     
     # # heartbeat and error raising emails (set to None to turn of emailing)
-    # monitor_mail_to_file = r'/home/rccuser/whakaari_monitor_mail_to.txt'
+    monitor_mail_to_file = r'/home/rccuser/whakaari_monitor_mail_to.txt'
     
     # # forecast alert emails (set to None to turn of emailing)
-    # alert_mail_to_file = r'/home/rccuser/whakaari_alert_mail_to.txt'
+    alert_mail_to_file = r'/home/rccuser/whakaari_alert_mail_to.txt'
     
     parser = argparse.ArgumentParser()
     parser.add_argument("-m", 
@@ -1264,7 +1264,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     if args.m == 'controller':
         controller = Controller(None, None, None, keyfile, test=False)
-    #    controller = Controller(mail_from, monitor_mail_to_file, alert_mail_to_file, keyfile, test=False)
+        controller = Controller(mail_from, monitor_mail_to_file, alert_mail_to_file, keyfile, test=False)
         controller.run()
     # elif args.m == 'controller-test':
     #     controller = Controller(None, None, None, None, test=True)
