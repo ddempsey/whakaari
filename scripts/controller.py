@@ -263,6 +263,9 @@ class Controller(object):
 
             if os.path.isfile('test.png'):
                 shutil.copyfile('test.png','/var/www/html/test.png')
+                
+            if os.path.isfile('ruapehu.png'):
+                shutil.copyfile('ruapehu.png','/var/www/html/ruapehu.png')
 
             # send alerts
             self.alert.send_email_alerts()
@@ -474,6 +477,8 @@ def update_forecast_v3():
             fp.write('{:d}\n'.format(in_alert))
 
         update_vulcano()
+        
+        update_ruapehu()
             
     except Exception:
         fp = open('run_forecast.err','w')
@@ -629,7 +634,7 @@ def dashboard_v2(ys,fm,save):
 
 def _update_vulcano():
     td = TremorData(station="IVGP")
-    #td.update()
+    td.update()
     fts = ['median','change_quantiles','fft_coefficient']   
     fts2 = ['zsc2_dsarF__median','zsc2_dsarF__change_quantiles__f_agg_"var"__isabs_False__qh_0.6__ql_0.4',
     'zsc2_hfF__fft_coefficient__coeff_38__attr_"real"']  
@@ -695,6 +700,85 @@ def _update_vulcano():
     
     ax2.set_title('Current feature time series')
     ax2.plot(ft_e1[0].index, np.log10(ft_e1[0][fts2[0]].values), 'b-', lw=0.5, label='zsc_DSAR 2-day median')
+    ax4.set_ylabel('zsc_DSAR 2-day median: Whakaari 2019')
+    ax4_.set_ylabel('zsc_DSAR change quantiles: Ruapehu 2007')
+    
+    for ax in [ax1,ax2]:
+        ax.legend()
+        for tick in ax.get_xticklabels():
+            tick.set_rotation(90)
+
+    plt.savefig('test.png', dpi=300)
+    plt.close(f)
+
+def _update_ruapehu():
+    td = TremorData(station="FWVZ")
+    td.update()
+    fts = ['median','change_quantiles','fft_coefficient']   
+    fts2 = ['zsc2_dsarF__median','zsc2_dsarF__change_quantiles__f_agg_"var"__isabs_False__qh_0.6__ql_0.4',
+    'zsc2_hfF__fft_coefficient__coeff_38__attr_"real"']  
+    
+    fm_e1 = ForecastModel(window=2., overlap=1., station = 'FWVZ',
+        look_forward=2., data_streams=['zsc2_dsarF','zsc2_hfF'], savefile_type='csv')
+    fm_e1.compute_only_features=fts
+        
+    tf_e1 = fm_e1.data.df.index[-1]
+    ti_e1 = tf_e1 - 30*timedelta(days=1)+timedelta(seconds=600) #month
+
+    # extract features
+    if ti_e1.year != tf_e1.year:
+        ft_e1 = fm_e1._load_data(ti=ti_e1, tf=datetime(tf_e1.year,1,1), yr=ti_e1.year)
+        ft_e2 = fm_e1._load_data(ti=datetime(tf_e1.year,1,1), tf=tf_e1, yr=tf_e1.year)
+        ft_e1 = pd.concat([ft_e1,ft_e2])
+    else:
+        ft_e1 = fm_e1._load_data(ti=ti_e1, tf=tf_e1, yr=ti_e1.year)
+    # extract values to correlate 
+    ft_e1_t = ft_e1[0].index.values
+    ccs=[]
+    ftvs = []
+    for i,ft in enumerate(fts2[:2]):
+        ft_e1_v = ft_e1[0].loc[:,ft].values
+        # ft_e1_v = [ft_e1_v[i][0] for i in range(len(ft_e1_v))]    
+        cc = corr_with_precursor(ft_e1_v, prec_code=i+1, path_prec='.'+os.sep)
+        ccs.append(cc)
+        ftvs.append(ft_e1[0])
+
+    fl = 'cc.csv'
+    df = pd.DataFrame(np.array([ccs,]), columns=fts[:2], index=np.array([tf_e1,]).T)
+    if os.path.isfile(fl):
+        cc=load_dataframe(fl,index_col='time', infer_datetime_format=True, parse_dates=['time'])
+        if cc.index[-1] != tf_e1:
+            cc = pd.concat([cc, df])
+    else:
+        cc = pd.DataFrame([], columns=fts)
+        cc = pd.concat([cc, df])
+    save_dataframe(cc,fl,index=True, index_label='time')
+    
+    # set up figures and axes
+    f = plt.figure(figsize=(16,8))
+    ax1 = plt.axes([0.05, 0.57, 0.4, 0.36])
+    ax2 = plt.axes([0.05, 0.08, 0.35, 0.36])
+    ax3 = plt.axes([0.54, 0.57, 0.4, 0.36])
+    ax4 = plt.axes([0.54, 0.08, 0.4, 0.36])
+
+    rsam = fm_e1.data.get_data(ti_e1, tf_e1)['rsamF']
+    dsar = fm_e1.data.get_data(ti_e1, tf_e1)['dsarF']
+    ax1.set_title('current Ruapehu data')
+    ax1.plot(rsam.index, rsam.values*1.e-3,'k-', lw=0.5, label='RSAM')
+    ax1_ = ax1.twinx()
+    ax1_.plot(dsar.index, dsar.values, 'b-', lw=0.5)
+    ax1.plot([],[],'b-',label='DSAR')
+    tks, tls = get_ticks(ti_e1, tf_e1, override=1)
+    ax1.set_ylabel('RSAM [$\mu$m s$^{-1}$]')
+    ax1_.set_ylabel('DSAR [-]')    
+    ax1.set_title('correlations - last updated {:s} (UTC)'.format(tf_e1.strftime('%H:%M, %d %b %Y')))
+    ax1.set_xticks(tks)
+    ax1.set_xticklabels(tls)
+    ax1.set_xlim([rsam.index[0], rsam.index[-1]])
+    ax1_.set_xlim([rsam.index[0], rsam.index[-1]])
+    
+    ax2.set_title('Current Ruapehu feature time series')
+    ax2.plot(ft_e1[0].index, np.log10(ft_e1[0][fts2[0]].values), 'b-', lw=0.5, label='zsc_DSAR 2-day median')
 #    ax2.set_yscale('log')
     ax2_ = ax2.twinx()
     ax2_.plot(ft_e1[0].index, ft_e1[0][fts2[1]].values, 'g-', lw=0.5)
@@ -720,7 +804,7 @@ def _update_vulcano():
     ax2_.set_ylabel('zsc_DSAR change quantiles')
     ax_2.set_ylabel('HF 75-min harmonic')
     
-    ax3.set_title('1-month correlations')
+    ax3.set_title('1-month correlations at Ruapehu')
     ax3.plot(cc.index, cc[fts[0]].values, 'b--', label='zsc_DSAR 2-day median')
     ax3.axhline(0.6, color='b', linestyle=':', label='concern threshold')
     ax3_ = ax3.twinx()
@@ -758,7 +842,7 @@ def _update_vulcano():
         for tick in ax.get_xticklabels():
             tick.set_rotation(90)
 
-    plt.savefig('test.png', dpi=300)
+    plt.savefig('ruapehu.png', dpi=300)
     plt.close(f)
 
 def update_vulcano():
@@ -770,6 +854,14 @@ def update_vulcano():
         fp.close()
         return
 
+def update_ruapehu():
+    try:
+        _update_ruapehu()
+    except:
+        fp = open('ruapehu_forecast.err','w')
+        fp.write('{:s}\n'.format(traceback.format_exc()))
+        fp.close()
+        return
 
 def plot_dashboard(ys,ys0,fm,fm0,save):
     # parameters
@@ -1232,7 +1324,8 @@ def probability():
 def test():
     # td = TremorData(station="IVGP")
     # test_corr_with_precursor()
-    _update_vulcano()
+    # _update_vulcano()
+    _update_ruapehu()
     # probability()
     # td.update()
     pass
