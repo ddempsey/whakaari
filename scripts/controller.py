@@ -629,7 +629,7 @@ def dashboard_v2(ys,fm,save):
 
 def _update_vulcano():
     td = TremorData(station="IVGP")
-    td.update()
+    #td.update()
     fts = ['median','change_quantiles','fft_coefficient']   
     fts2 = ['zsc2_dsarF__median','zsc2_dsarF__change_quantiles__f_agg_"var"__isabs_False__qh_0.6__ql_0.4',
     'zsc2_hfF__fft_coefficient__coeff_38__attr_"real"']  
@@ -669,7 +669,7 @@ def _update_vulcano():
         cc = pd.DataFrame([], columns=fts)
         cc = pd.concat([cc, df])
     save_dataframe(cc,fl,index=True, index_label='time')
-
+    
     # set up figures and axes
     f = plt.figure(figsize=(16,8))
     ax1 = plt.axes([0.05, 0.57, 0.4, 0.36])
@@ -1244,8 +1244,8 @@ if __name__ == "__main__":
 
         Other options for experts.
     '''
-    #test()
-    # asdf
+    test()
+    asdf
     # set parameters (set to None to turn of emailing)
     keyfile = r'/home/rccuser/twitter_keys.txt'
     mail_from = 'noreply.whakaariforecaster@gmail.com'
