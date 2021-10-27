@@ -743,7 +743,7 @@ def _update_ruapehu():
         ccs.append(cc)
         ftvs.append(ft_e1[0])
 
-    fl = 'cc.csv'
+    fl = 'cc_ruapehu.csv'
     df = pd.DataFrame(np.array([ccs,]), columns=fts[:2], index=np.array([tf_e1,]).T)
     if os.path.isfile(fl):
         cc=load_dataframe(fl,index_col='time', infer_datetime_format=True, parse_dates=['time'])
@@ -1337,8 +1337,8 @@ if __name__ == "__main__":
 
         Other options for experts.
     '''
-    test()
-    asdf
+    #test()
+    #asdf
     # set parameters (set to None to turn of emailing)
     keyfile = r'/home/rccuser/twitter_keys.txt'
     mail_from = 'noreply.whakaariforecaster@gmail.com'
