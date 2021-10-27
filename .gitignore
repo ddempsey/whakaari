@@ -7,6 +7,7 @@ plots/
 controller/
 data/*.csv
 scripts/*.pkl
+scripts/cc.csv
 !scripts/online_WIZ_isotonic_calibrator.pkl
 scripts/posteriors/
 _tmp/
