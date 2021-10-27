@@ -1049,7 +1049,6 @@ class ForecastModel(object):
         t1 = df.index[-1]+self.dt
         print('{:s} feature extraction {:s} to {:s}'.format(df.columns[0], t0.strftime('%Y-%m-%d'), t1.strftime('%Y-%m-%d')))
         return extract_features(df, **kw)
-
     def _const_wd_extr_ft(self, Nw, ti, ds, indx = None):
         'Construct windows, extract features and return dataframe'
         # features to compute
@@ -1059,7 +1058,7 @@ class ForecastModel(object):
         else:
             # drop features if relevant
             _ = [cfp.pop(df) for df in self.drop_features if df in list(cfp.keys())]
-        kw = {'column_id':'id', 'n_jobs':4,
+        kw = {'column_id':'id', 'n_jobs':self.n_jobs,
             'default_fc_parameters':cfp, 'impute_function':impute}
         # construct_windows/extract_features for subsets
         df, wd = self._construct_windows(Nw, ti, ds, indx = indx)

@@ -6,6 +6,7 @@ from matplotlib import pyplot as plt
 import numpy as np
 from datetime import timedelta
 import pickle
+from scipy.signal import convolve
 
 # tsfresh and sklearn dump a lot of warnings - these are switched off below, but should be
 # switched back on when debugging
@@ -18,38 +19,77 @@ warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=FitFailedWarning)
 
+from functools import partial
 from obspy import UTCDateTime
+from cross_correlation import correlate_template
 
-def check():
+def convolution():
     ''' Load data and calculate features in parallel for multiple stations, multiple datastreams, and multiple window sizes.
         Overlap is set to 1.0 (max) 
     '''
-    month = timedelta(days=365.25/12.)
-    ks = ['WIZ','WIZ','FWVZ','KRVZ','VNSS',]
-    # ks = ['VNSS','BELO']
-    all_data = []
-    data = ['rsam']
-    ds = ['zsc2_{:s}F'.format(d) for d in data]+['rsam']
-    for k in ks:
-        fm = ForecastModel(window=2., overlap=1., station=k,
-            look_forward=2., data_streams=ds, 
-            # feature_dir=r'U:\Research\EruptionForecasting\eruptions\features', 
-            data_dir=r'U:\Research\EruptionForecasting\eruptions\data')
-        fm.compute_only_features=['median']
-    
-        j = fm.data.df.index
-        for i,te in enumerate(fm.data.tes):
-            te = datetimeify('2020-03-01')
-            if k == 'WIZ' and i==2:
-                te = datetimeify('2013-10-11 07:09:00')
-            FM,_ = fm._load_data(te-month,te,None)
-            
-            f,ax = plt.subplots(1,1)
-            ax.plot(FM.index, FM['zsc2_{:s}F__median'.format(data[0])], 'k-')
-            df = fm.data.df[(j>(te-month))&(j<te)]
-            ax.plot(df.index, df['zsc2_{:s}F'.format(data[0])].rolling(2*6*24).median(), 'r--')
-            plt.show()
+    dt = 'zsc2_dsarF'
+    day = timedelta(days=1)
+    fm = ForecastModel(window=2., overlap=1., station='WIZ',
+        look_forward=2., data_streams=[dt], 
+        #data_dir=r'U:\Research\EruptionForecasting\eruptions\data',
+        )
+    te = fm.data.tes[-1]
 
+    # rolling median and signature length window
+    N, M = [2,28]
+    # time
+    j = fm.data.df.index
+    # construct signature
+    df = fm.data.df[(j>(te-(M+N)*day))&(j<te)]
+    archtype = df[dt].rolling(N*24*6).median()[N*24*6:]
+    # convolve over the data
+    df = fm.data.df[(j<te)]
+    test = df[dt].rolling(N*24*6).median()[N*24*6:]
+    out = test.rolling(archtype.shape[0]).apply(partial(conv, (archtype-archtype.mean())/archtype.std()))
+
+    cc_te = []
+    for te in fm.data.tes[:-1]:
+        if te == fm.data.tes[2]:
+            te = datetimeify('2013-10-11 07:09:00')
+        cc_te.append(out[out.index.get_loc(te, method='nearest')])
+    cc_te = np.array(cc_te)
+    print(cc_te)
+
+    # plot results
+    f,(ax,ax2) = plt.subplots(1,2)
+    ax.plot(test.index, test.values, 'k-', label='zsc_DSAR')
+    ax.plot(archtype.index, archtype.values, 'r:', label='archtype')
+    ax_ = ax.twinx()
+    ax_.plot(test.index[-out.shape[-1]:], out, 'm--', label='CC')
+    ax.plot([],[],'m--',label='CC')
+    ax.legend()
+
+    # distribution
+    h,e = np.histogram(out, bins=np.linspace(-1,1,41))
+    ax2.bar(e[:-1], h/(np.sum(h)*(e[1]-e[0])), e[1]-e[0], align='edge', label='all CC')
+    y0 = 1.6*np.mean(ax2.get_ylim())
+
+    # 2-sample Kolmogorov Smirnov test for difference in underlying distributions
+    from scipy.stats import kstest
+    pv = kstest(cc_te, out.iloc[archtype.shape[0]::24*6].values).pvalue
+
+    # show eruptions on CDF
+    ax2_=ax2.twinx()
+    ov = np.sort(out.values[archtype.shape[0]::])
+    cdf = 1.*np.arange(len(ov))/(len(ov)-1)
+    ax2_.plot(ov, cdf, 'k-')
+    cdf_te = np.array([cdf[np.argmin(abs(ov-cci))] for cci in cc_te])
+    ax2_.plot(cc_te, cdf_te, 'b*', label='eruptions')
+    ax2.plot([],[],'k-',label='CDF')
+    ax2.plot([],[],'b*',label='eruptions')
+    ax2.set_title('KS test p-value = '+str(pv))
+    ax2.legend()
+
+    plt.show()
+
+def conv(at, x):
+    y = ((x-np.mean(x))/np.std(x)*at.values).mean()
+    return y
 
 def get_all():
     ''' Load data and calculate features in parallel for multiple stations, multiple datastreams, and multiple window sizes.
@@ -65,19 +105,18 @@ def get_all():
         print(k)
         fm = ForecastModel(window=2., overlap=1., station=k,
             look_forward=2., data_streams=ds, 
-            feature_dir=r'U:\Research\EruptionForecasting\eruptions\features', 
             data_dir=r'U:\Research\EruptionForecasting\eruptions\data')
-        fm.compute_only_features=['median']
+        # fm.compute_only_features=['median']
     
         for i,te in enumerate(fm.data.tes):
             if k == 'WIZ' and i==2:
                 te = datetimeify('2013-10-11 07:09:00')
             print(te)
-            FM,_ = fm._load_data(te-month,te,None)
+            # FM,_ = fm._load_data(te-month,te,None)
             all_data.append([
                 k,
                 te,
-                FM[['{:s}__median'.format(d) for d in ds]], 
+                None, 
                 fm.data.get_data(te-month,te)
             ])
 
@@ -101,22 +140,39 @@ def study_all():
     from scipy.spatial.distance import euclidean
     pattern = all_data[4][3]['zsc2_dsarF'].rolling(2*6*24).median().values[2*6*24:]
 
+    N = 2
     for i,e1,e2,e3,ax1,ax2,ax3 in zip(range(5),all_data[:5], all_data[5:10], all_data[10:], axs.T[0], axs.T[1], axs.T[2]):
         for e,ax in zip([e1,e2,e3],[ax1,ax2,ax3]):
 
             # for d,c in zip(ds[:5], ['m', 'g','k','b','r']):
             #     ax.plot(e[2].index, e[2][d+'__median'], c+'-', lw=1, label=d)
             # ax.plot(e[3].index, e[3]['zsc2_dsarF'], 'k-', label='dsar')
-            ax_ = ax.twinx()
             # ax_.plot(e[3].index, e[3]['diff_dsarF'], 'b-')
             # ax.plot(e[3].index, e[2]['zsc2_dsarF__median'], 'b-')
-            ax.plot(e[3].index, e[3]['zsc2_dsarF'].rolling(2*6*24).median(), 'b-')
-            # ax_.plot(e[3].index, e[3]['zsc2_dsarF'].rolling(2*6*24).apply(chqv), 'g-')
-            # ax.plot([],[],'b-','dsar_rate')
-            test_pattern = e[3]['zsc2_dsarF'].rolling(2*6*24).median().values[2*6*24:]
-            # ax.plot(e[3].index, test_pattern, 'r--')
-            # d,p=fastdtw(pattern/np.sum(pattern), test_pattern/np.sum(test_pattern), dist=euclidean)            
-            # ax.text(0.03,0.95,e[0]+', {:s}, {:3.2f}'.format(e[1].strftime('%d-%m-%Y'), d), transform=ax.transAxes,ha='left', va='top')
+
+            f = 0.9
+            i,j = [int(f*N*6*24), N*6*24-int(f*N*6*24)]
+
+            t = e[3].index
+            dsari = e[3]['zsc2_dsarF']
+            dsari = e[3]['zsc2_mfF']/e[3]['zsc2_hfF']
+            dsar = dsari.rolling(N*6*24).median()[N*6*24:]
+            mf = e[3]['zsc2_mfF'].rolling(N*6*24).median()[N*6*24:]
+            hf = e[3]['zsc2_hfF'].rolling(N*6*24).median()[N*6*24:]
+            dsar = mf/hf
+            ax.plot(t[N*6*24:], dsar, 'g-')            
+            ax_ = ax.twinx()
+            ddsardt=dsari.rolling(i).median().diff().rolling(j).median()[N*6*24+1:]
+            ddsardt=dsar.diff()[1:]
+            # ax_.plot(t[N*6*24+1:], ddsardt, 'r-', lw=0.5)
+            dmfdt=mf.diff()[1:]
+            dhfdt=hf.diff()[1:]
+            # ax_.plot(t[N*6*24+1:], dmfdt, 'g--')
+            ddsardt2 = (hf[1:]*dmfdt-mf[1:]*dhfdt)/(hf[1:])**2
+            # ax_.plot(t[N*6*24+1:], ddsardt2/np.max(abs(ddsardt2))*np.max(abs(ddsardt)), 'g--', lw=0.5)
+            ax_.plot(t[8*N*6*24+1:], (hf[1:]*dmfdt).rolling(12).mean()[7*N*6*24:], 'b-', lw=0.5)
+            ax_.plot(t[8*N*6*24+1:],(-mf[1:]*dhfdt).rolling(12).mean()[7*N*6*24:], 'r-', lw=0.5)
+            ax_.set_yscale('symlog')
 
     ax.legend()
 
@@ -134,7 +190,7 @@ def chqv(y):
     return np.var(np.diff(y, prepend=0)[inds])
 
 if __name__ == "__main__":
-    # get_all()
-    # study_all()
-    check()
+    get_all()
+    study_all()
+    convolution()
     
