@@ -1,4 +1,4 @@
-import os, sys, traceback, yagmail, shutil, argparse
+import os, sys, traceback, yagmail, shutil, argparse, requests, io
 sys.path.insert(0, os.path.abspath('..'))
 from whakaari import TremorData, ForecastModel, to_nztimezone, datetimeify, load_dataframe, save_dataframe
 from datetime import timedelta, datetime
@@ -766,7 +766,8 @@ def _update_vulcano():
 
 def _update_ruapehu():
     td = TremorData(station="FWVZ")
-    td.update()
+    #td.update()
+    download_lake_data()
     fts = ['median','change_quantiles','fft_coefficient']   
     fts2 = ['zsc2_dsarF__median','zsc2_dsarF__change_quantiles__f_agg_"var"__isabs_False__qh_0.6__ql_0.4',
     'zsc2_hfF__fft_coefficient__coeff_38__attr_"real"']  
@@ -809,10 +810,11 @@ def _update_ruapehu():
     
     # set up figures and axes
     f = plt.figure(figsize=(16,8))
-    ax1 = plt.axes([0.05, 0.57, 0.4, 0.36])
-    ax2 = plt.axes([0.05, 0.08, 0.35, 0.36])
-    ax3 = plt.axes([0.54, 0.57, 0.4, 0.36])
-    ax4 = plt.axes([0.54, 0.08, 0.4, 0.36])
+    ax1 = plt.axes([0.05, 0.70, 0.4, 0.26])
+    ax2 = plt.axes([0.05, 0.38, 0.4, 0.26])
+    ax2b= plt.axes([0.05, 0.08, 0.4, 0.26])
+    ax3 = plt.axes([0.60, 0.57, 0.34, 0.36])
+    ax4 = plt.axes([0.60, 0.08, 0.34, 0.36])
 
     rsam = fm_e1.data.get_data(ti_e1, tf_e1)['rsamF']
     dsar = fm_e1.data.get_data(ti_e1, tf_e1)['dsarF']
@@ -825,14 +827,16 @@ def _update_ruapehu():
     ax1.set_ylabel('RSAM [$\mu$m s$^{-1}$]')
     ax1_.set_ylabel('DSAR [-]')    
     ax1.set_title('correlations - last updated {:s} (UTC)'.format(tf_e1.strftime('%H:%M, %d %b %Y')))
-    ax1.set_xticks(tks)
-    ax1.set_xticklabels(tls)
+    # ax1.set_xticks(tks)
+    # ax1.set_xticklabels(tls)
     ax1.set_xlim([rsam.index[0], rsam.index[-1]])
     ax1_.set_xlim([rsam.index[0], rsam.index[-1]])
+    ax1.legend()
+    ax1.set_xticks(tks)
+    ax1.set_xticklabels([])
     
     ax2.set_title('Current Ruapehu feature time series')
     ax2.plot(ft_e1[0].index, np.log10(ft_e1[0][fts2[0]].values), 'b-', lw=0.5, label='zsc_DSAR 2-day median')
-#    ax2.set_yscale('log')
     ax2_ = ax2.twinx()
     ax2_.plot(ft_e1[0].index, ft_e1[0][fts2[1]].values, 'g-', lw=0.5)
     ax_2 = ax2.twinx()
@@ -845,10 +849,9 @@ def _update_ruapehu():
     ax_2.patch.set_visible(False)
     ax_2.yaxis.set_label_position("right")
     ax_2.yaxis.tick_right()
-    ax_2.plot(ft_e1[0].index, ft_e1[0][fts2[2]].values, 'r-', lw=0.5)
-    ax_2.set_ylim([-20,20])
-    ax2.set_xticks(tks)
-    ax2.set_xticklabels(tls)
+    ax_2.plot(ft_e1[0].index, ft_e1[0][fts2[2]].values, 'r-', lw=0.5, alpha=0.1)
+    #ax_2.set_ylim([-20,20])
+    ax_2.set_yscale('symlog')
     
     ax2.plot([],[],'g-', lw=0.5, label='zsc_DSAR change quantiles')
     ax2.plot([],[],'r-', lw=0.5, label='HF 75-min harmonic')
@@ -856,6 +859,25 @@ def _update_ruapehu():
     ax2.set_ylabel('zsc_DSAR 2-day median')
     ax2_.set_ylabel('zsc_DSAR change quantiles')
     ax_2.set_ylabel('HF 75-min harmonic')
+    ax2.legend()
+    ax2.set_xticks(tks)
+    ax2.set_xticklabels([])
+
+    z = load_dataframe('../data/RU001A_z.csv', index_col='date-time', infer_datetime_format=True, parse_dates=['date-time'])[' z (m)']
+    T = load_dataframe('../data/RU001_T.csv', index_col='date-time', infer_datetime_format=True, parse_dates=['date-time'])[' t (C)']
+    ax2b.plot(T.index, T.values, 'g-', label='lake temperature')
+    ax2b.plot(T.index, T.rolling('4H').mean().values, 'k--')
+    ax2b_ = ax2b.twinx()
+    ax2b_.plot(z.index, z.values, 'b-')
+    ax2b_.plot(z.index, z.rolling('4H').mean().values, 'k--')
+    ax2b.plot([], [], 'b-', label='lake level')
+    ax2b.set_ylabel('temperature [$^{\circ}$C]')
+    ax2b_.set_ylabel('elevation [m]')
+    ax2b.legend()
+    ax2b.set_xlim([ti_e1, tf_e1])
+    
+    ax2b.set_xticks(tks)
+    ax2b.set_xticklabels(tls)
     
     ax3.set_title('1-month correlations at Ruapehu')
     ax3.plot(cc.index, cc[fts[0]].values, 'b--', label='zsc_DSAR 2-day median')
@@ -886,12 +908,10 @@ def _update_ruapehu():
     ax4.plot([],[],'g-', lw=0.5, label='Ruapehu 2007 zsc_DSAR change quantiles')    
     ax4.set_xlabel('days')
     ax4.legend()
-#    ax4.set_yscale('log')
     ax4.set_ylabel('zsc_DSAR 2-day median: Whakaari 2019')
     ax4_.set_ylabel('zsc_DSAR change quantiles: Ruapehu 2007')
     
-    for ax in [ax1,ax2]:
-        ax.legend()
+    for ax in [ax2b]:
         for tick in ax.get_xticklabels():
             tick.set_rotation(90)
 
@@ -906,6 +926,26 @@ def update_vulcano():
         fp.write('{:s}\n'.format(traceback.format_exc()))
         fp.close()
         return
+
+def download_lake_data():
+    url = "https://fits.geonet.org.nz/observation"
+    
+    # site = "WI031"
+    dt = requests.get(url, {"typeID": 'z', "siteID": 'RU001A', "days":"5"})
+    df = pd.read_csv(io.BytesIO(dt.content), encoding='utf8', sep=",", index_col="date-time", parse_dates=["date-time",], infer_datetime_format=True)
+    fl = '../data/RU001A_z.csv'
+    df0 = load_dataframe(fl, index_col='date-time', infer_datetime_format=True, parse_dates=['date-time'])
+    df = pd.concat([df,df0])
+    df = df[~df.index.duplicated(keep='first')].sort_index()
+    save_dataframe(df, fl, index=True, index_label='date-time')
+    
+    dt = requests.get(url, {"typeID": 't', "siteID": 'RU001', "days":"5"})
+    df = pd.read_csv(io.BytesIO(dt.content), encoding='utf8', sep=",", index_col="date-time", parse_dates=["date-time",], infer_datetime_format=True)
+    fl = '../data/RU001_T.csv'
+    df0 = load_dataframe(fl, index_col='date-time', infer_datetime_format=True, parse_dates=['date-time'])
+    df = pd.concat([df,df0])
+    df = df[~df.index.duplicated(keep='first')].sort_index()
+    save_dataframe(df, fl, index=True, index_label='date-time')        
 
 def update_ruapehu():
     try:
@@ -1390,38 +1430,38 @@ if __name__ == "__main__":
 
         Other options for experts.
     '''
-    #test()
-    #asdf
-    # set parameters (set to None to turn of emailing)
-    keyfile = r'/home/rccuser/twitter_keys.txt'
-    mail_from = 'noreply.whakaariforecaster@gmail.com'
+    test()
+    # asdf
+    # # set parameters (set to None to turn of emailing)
+    # keyfile = r'/home/rccuser/twitter_keys.txt'
+    # mail_from = 'noreply.whakaariforecaster@gmail.com'
     
-    # # heartbeat and error raising emails (set to None to turn of emailing)
-    monitor_mail_to_file = r'/home/rccuser/whakaari_monitor_mail_to.txt'
+    # # # heartbeat and error raising emails (set to None to turn of emailing)
+    # monitor_mail_to_file = r'/home/rccuser/whakaari_monitor_mail_to.txt'
     
-    # # forecast alert emails (set to None to turn of emailing)
-    alert_mail_to_file = r'/home/rccuser/whakaari_alert_mail_to.txt'
+    # # # forecast alert emails (set to None to turn of emailing)
+    # alert_mail_to_file = r'/home/rccuser/whakaari_alert_mail_to.txt'
     
-    parser = argparse.ArgumentParser()
-    parser.add_argument("-m", 
-        type=str,
-        default='controller',
-        help="flag indicating how controller is to run")
-    args = parser.parse_args()
-    if args.m == 'controller':
-        controller = Controller(None, None, None, keyfile, test=False)
-        controller = Controller(mail_from, monitor_mail_to_file, alert_mail_to_file, keyfile, test=False)
-        controller.run()
-    # elif args.m == 'controller-test':
-    #     controller = Controller(None, None, None, None, test=True)
+    # parser = argparse.ArgumentParser()
+    # parser.add_argument("-m", 
+    #     type=str,
+    #     default='controller',
+    #     help="flag indicating how controller is to run")
+    # args = parser.parse_args()
+    # if args.m == 'controller':
+    #     controller = Controller(None, None, None, keyfile, test=False)
+    #     controller = Controller(mail_from, monitor_mail_to_file, alert_mail_to_file, keyfile, test=False)
     #     controller.run()
-    elif args.m == 'update_forecast':
-        update_forecast_v3()
-    # elif args.m == 'update_forecast_test':
-    #     update_forecast_test()
-    # elif args.m == 'plot_date':
-    #     plot_date('2020-09-18')
-    #     plot_date('2020-09-03') 
-    # elif args.m == 'rebuild_hires_features':
-    #     rebuild_hires_features()
+    # # elif args.m == 'controller-test':
+    # #     controller = Controller(None, None, None, None, test=True)
+    # #     controller.run()
+    # elif args.m == 'update_forecast':
+    #     update_forecast_v3()
+    # # elif args.m == 'update_forecast_test':
+    # #     update_forecast_test()
+    # # elif args.m == 'plot_date':
+    # #     plot_date('2020-09-18')
+    # #     plot_date('2020-09-03') 
+    # # elif args.m == 'rebuild_hires_features':
+    # #     rebuild_hires_features()
     
