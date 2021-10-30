@@ -12,6 +12,7 @@ import numpy as np
 import twitter
 from functools import partial
 from dateutil.relativedelta import relativedelta
+from bs4 import BeautifulSoup
 
 # tsfresh and sklearn dump a lot of warnings - these are switched off below, but should be
 # switched back on when debugging
@@ -635,6 +636,10 @@ def dashboard_v2(ys,fm,save):
 def _update_vulcano():
     td = TremorData(station="IVGP")
     td.update()
+    try:        
+        scrape_cam(datetime.now())
+    except:
+        print('webcam scrape failed')
     fts = ['median','change_quantiles','fft_coefficient']   
     fts2 = ['zsc2_dsarF__median','zsc2_dsarF__change_quantiles__f_agg_"var"__isabs_False__qh_0.6__ql_0.4',
     'zsc2_hfF__fft_coefficient__coeff_38__attr_"real"']  
@@ -955,6 +960,19 @@ def update_ruapehu():
         fp.write('{:s}\n'.format(traceback.format_exc()))
         fp.close()
         return
+
+def scrape_cam(ti):
+    fl = '../data/img/{:s}.png'.format(ti.strftime('%y%m%d_%H%M00'))
+    if os.path.isfile(fl):
+        return
+    
+    r = requests.get("https://www.ct.ingv.it/sezioniesterne/webcam/WebcamE.php?Vulcano=Vvt")
+    soup = BeautifulSoup(r.content)
+    a = soup.findAll('img')[0].attrs['src'].split('../')[-1]
+    link = 'https://www.ct.ingv.it/{:s}'.format(a)
+    
+    with open(fl,"wb") as f:
+        f.write(requests.get(link).content)
 
 def plot_dashboard(ys,ys0,fm,fm0,save):
     # parameters
@@ -1418,6 +1436,7 @@ def test():
     # td = TremorData(station="IVGP")
     # test_corr_with_precursor()
     # _update_vulcano()
+    #scrape_cam(datetime.now())
     _update_ruapehu()
     # probability()
     # td.update()
@@ -1430,8 +1449,8 @@ if __name__ == "__main__":
 
         Other options for experts.
     '''
-    # test()
-    # asdf
+    #test()
+    #asdf
     # set parameters (set to None to turn of emailing)
     keyfile = r'/home/rccuser/twitter_keys.txt'
     mail_from = 'noreply.whakaariforecaster@gmail.com'
