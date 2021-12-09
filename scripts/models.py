@@ -25,8 +25,6 @@ FEATURE_DIR = r'E:\whakaari\features'
 def evaluation():
     # setup forecast model
     n_jobs = 8  
-    td = TremorData()
-    td.update()
     data_streams = ['rsam','mf','hf','dsar']
     fm = ForecastModel(window=2., overlap=0.75, look_forward=2., data_streams=data_streams, 
         savefile_type='pkl', station='WIZ', feature_dir=FEATURE_DIR)   
@@ -36,17 +34,18 @@ def evaluation():
     fm.train(tf='2020-01-01', drop_features=drop_features, retrain=False, Ncl=500, n_jobs=n_jobs)        
     
     # test the model by constructing a hires forecast for excluded eruption
-    ys = fm.hires_forecast(ti=datetimeify('2020-02-01'), tf = fm.data.df.index[-1], recalculate=True, 
+    ys = fm.hires_forecast(ti=datetimeify('2020-02-01'), tf = fm.data.df.index[-1], recalculate=False, 
         save=r'{:s}/evaluation_hires.png'.format(fm.plotdir), 
         n_jobs=n_jobs, root=r'benchmark_e0_hires'.format(fm.root), threshold=0.8)
 
-def reliability(root, data_streams, eruption, Ncl):
+def reliability(root, data_streams, eruption, Ncl, eruption2=None):
     # setup forecast model
     n_jobs = 8 
-    td = TremorData()
-    td.update()
+    root = '{:s}_e{:d}'.format(root, eruption)
+    if eruption2 is not None:
+        root += '_p{:d}'.format(eruption2)
     fm = ForecastModel(window=2., overlap=0.75, look_forward=2., data_streams=data_streams,
-        root='{:s}_e{:d}'.format(root, eruption), savefile_type='pkl', station='WIZ',
+        root=root, savefile_type='pkl', station='WIZ',
         feature_dir=FEATURE_DIR)   
 
     # train-test split on five eruptions to compute model confidence of an eruption
@@ -61,6 +60,9 @@ def reliability(root, data_streams, eruption, Ncl):
     # train a model with data from that eruption excluded
     te = fm.data.tes[eruption-1]
     exclude_dates = [[te-_MONTH, te+_MONTH]]
+    if eruption2 is not None:
+        te = fm.data.tes[eruption2-1]
+        exclude_dates.append([te-_MONTH, te+_MONTH])
     fm.train(drop_features=drop_features, retrain=True, Ncl=Ncl, n_jobs=n_jobs, exclude_dates=exclude_dates)        
     
     # test the model by constructing a hires forecast for excluded eruption
@@ -71,22 +73,15 @@ def reliability(root, data_streams, eruption, Ncl):
         save=r'{:s}/hires.png'.format(fm.plotdir), 
         n_jobs=n_jobs, root=r'{:s}_hires'.format(fm.root), threshold=1.0)
 
-    # save the largest value of model consensus in the 48 hours prior
-    y = ys['consensus']
-    ci = fm._compute_CI(y)
-    y0 = y-ci                   # take lower bound of 95% conf. int. for conservatism
-    inds = (y.index<(te-fm.dt))&(y.index>(te-fm.dtf))
-    conf = y0[inds].max()
-    with open(r'{:s}/confidence.txt'.format(fm.plotdir), 'w') as fp:
-        fp.write('{:4.3f}'.format(conf))
-
-def discriminability(root, data_streams, Ncl):
+def discriminability(root, data_streams, Ncl, eruption=None):
     # setup forecast model
     n_jobs = 8
+    root = '{:s}_e0'.format(root)
+    if eruption is not None:
+        root += '{:s}_e{:d}_p0'.format(root, eruption)
     fm = ForecastModel(window=2., overlap=0.75, look_forward=2., data_streams=data_streams,
-        root='{:s}_e0'.format(root), savefile_type='pkl', station='WIZ',
+        root=root, savefile_type='pkl', station='WIZ',
         feature_dir=FEATURE_DIR)   
-    fm.data.update()
 
     # remove duplicate linear features (because correlated), unhelpful fourier compoents
     # and fourier harmonics too close to Nyquist
@@ -97,52 +92,15 @@ def discriminability(root, data_streams, Ncl):
         drop_features += ['*fft_coefficient__coeff_{:d}*'.format(i) for i in range(freq_max+1, 2*freq_max+2)]
     
     # construct hires model over entire dataset to compute false alarm rate
-    fm.train(drop_features=drop_features, retrain=False, Ncl=Ncl, n_jobs=n_jobs)        
+    exclude_dates = []
+    if eruption is not None:
+        te = fm.data.tes[eruption-1]
+        exclude_dates = [[te-_MONTH, te+_MONTH]]
+    fm.train(drop_features=drop_features, retrain=False, Ncl=Ncl, n_jobs=n_jobs, exclude_dates=exclude_dates)        
     
     # forecast over whole dataset
-    ys = fm.hires_forecast(ti=fm.ti_train, tf=fm.tf_train, recalculate=False, 
+    ys = fm.hires_forecast(ti=fm.ti_train, tf=fm.tf_train, recalculate=True, 
         n_jobs=n_jobs, root=r'{:s}_hires'.format(fm.root), threshold=1.0)    
-
-    y = np.mean(np.array([ys[col] for col in ys.columns]), axis=0)
-    dy = fm._compute_CI(y)
-
-    thresholds = np.linspace(0,1.0,101)
-    ialert = int(fm.look_forward/(fm.dt.total_seconds()/(24*3600)))
-    FP, _, TP, _, dur, _ = fm.get_performance(ys.index, y+dy, thresholds, ialert, fm.dt)
-    _,ax1 = plt.subplots(1,1)
-    ax1.plot(thresholds, dur, 'k-', label='fractional alert duration')
-    ax1.plot(thresholds, TP/(FP+TP), 'k--', label='probability of eruption\nduring alert')
-    ax1_ = ax1.twinx()
-    ax1_.plot(thresholds, dur*ys.shape[0]/6/24/(FP+TP), 'b-')
-    ax1.plot([], [], 'b-', label='average alert length')
-
-    conf = []
-    for i in [1,2,3,5]:
-        with open(fm.plotdir+'/../{:s}_e{:d}/confidence.txt'.format(root,i)) as fp:
-            conf.append(float(fp.readline().strip()))
-    conf = min(conf)
-    j = np.argmin(abs(thresholds-conf))
-    th = thresholds[j]
-    th0 = thresholds[0]
-    th1 = thresholds[-1]
-    ax1.axvline(th, color = 'k', linestyle=':', alpha=0.5, 
-        label='model conf. {:3.2f}'.format(th))
-    ax1.plot([th0,th], [dur[j],dur[j]], 'k-', alpha=0.5, lw=0.5)
-    tp = TP[j]/(FP[j]+TP[j])
-    ax1.plot([th0,th], [tp,tp], 'k--', alpha=0.5, lw=0.5)
-    ax1.text(-.01*th1, tp, '{:3.2f}'.format(tp), ha='right', va='center')
-    ax1.text(-.01*th1, dur[j], '{:3.2f}'.format(dur[j]), ha='right', va='center')
-    
-    dj = dur[j]*ys.shape[0]/6/24/(FP[j]+TP[j])
-    ax1_.plot([th,th1], [dj, dj], 'b-', alpha=0.5, lw=0.5)
-    ax1_.text(1.01*th1, dj, '{:2.1f} days'.format(dj), ha='left', va='center')
-    ax1.set_xlim([th0,th1])
-    ax1_.set_xlim([th0,th1])
-    
-    ax1.legend()
-    ax1.set_xlabel('alert threshold')
-    ax1_.set_ylabel('days')
-    plt.savefig('{:s}_performance.png'.format(root),dpi=400)
 
 def model(root, data_streams, Ncl=100):
     # assess reliability by cross validation on five eruptions
@@ -152,21 +110,40 @@ def model(root, data_streams, Ncl=100):
     # assess discriminability by high-resoultion simulation across dataset
     discriminability(root, data_streams, Ncl)
 
+def calibration(root, data_streams, Ncl=100):
+    # create sub-models for probability calibration
+    for eruption in range(1,6):
+        print(eruption)
+        discriminability(root, data_streams, Ncl, eruption)
+        continue
+        for eruption2 in range(1,6):
+            if eruption == eruption2:
+                continue
+            print(eruption,eruption2)
+            reliability(root, data_streams, eruption, Ncl, eruption2)
+
 def main():
-    # model 0: evaluation of operational forecaster over 18 months
-    evaluation()
+    # # update data
+    # td = TremorData()
+    # td.update()
 
-    # model 1: benchmark from 2020 Nat Comms paper (100 classifiers)
-    data_streams = ['rsam','mf','hf','dsar']
-    model('benchmark', data_streams, Ncl=100)
+    # # model 0: evaluation of operational forecaster over 18 months
+    # # evaluation()
+    # data_streams = ['zsc2_rsamF','zsc2_mfF','zsc2_hfF','zsc2_dsarF']
+    # model(root='transformed2',data_streams=data_streams, Ncl=500)
 
-    # model 2: model 1 with regional earthquakes filtered (500 classifiers)
-    data_streams = ['rsamF','mfF','hfF','dsarF']
-    model(root='filtered',data_streams=data_streams, Ncl=500)
+    # # model 1: benchmark from 2020 Nat Comms paper (100 classifiers)
+    # data_streams = ['rsam','mf','hf','dsar']
+    # model('benchmark', data_streams, Ncl=100)
+
+    # # model 2: model 1 with regional earthquakes filtered (500 classifiers)
+    # data_streams = ['rsamF','mfF','hfF','dsarF']
+    # model(root='filtered',data_streams=data_streams, Ncl=500)
     
     # model 3: model 2 with data standardisation (500 classifiers)
     data_streams = ['zsc2_rsamF','zsc2_mfF','zsc2_hfF','zsc2_dsarF']
-    model(root='transformed2',data_streams=data_streams, Ncl=500)
+    # model(root='transformed2',data_streams=data_streams, Ncl=500)
+    calibration(root='transformed2',data_streams=data_streams, Ncl=500)
 
 if __name__ == "__main__":
     main()
