@@ -16,7 +16,7 @@ git clone https://github.com/ddempsey/whakaari
 ```bash
 cd whakaari
 
-git checkout -b real-time origin/real-time
+git checkout transfer-learning
 
 conda env create -f environment.yml
 

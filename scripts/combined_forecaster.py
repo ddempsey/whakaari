@@ -1,7 +1,7 @@
 import os, sys, gc
 sys.path.insert(0, os.path.abspath('..'))
 from whakaari import (TremorData, ForecastModel, 
-    datetimeify, makedir, get_classifier, train_one_model)
+    datetimeify, makedir, get_classifier, train_one_model, get_data_for_day)
 from datetime import timedelta, datetime
 from inspect import getfile, currentframe
 from functools import partial
@@ -326,11 +326,17 @@ def combined_forecaster():
     drop_features = ['linear_trend_timewise','agg_linear_trend','*attr_"imag"*','*attr_"real"*',
         '*attr_"angle"*']
     data_streams = ['zsc_rsam','zsc_mf','zsc_hf','zsc_dsar']
-    data_streams = ['zsc_rsam','zsc_mf','zsc_hf','zsc_dsar', 'log_zsc2_rsamF', 'diff_zsc2_rsamF']
+    data_streams = ['zsc2_rsamF','zsc2_mfF','zsc2_hfF','zsc2_dsarF']#['zsc_rsamF','zsc_mfF','zsc_hfF','zsc_dsarF', 'log_zsc2_rsamF', 'diff_zsc2_rsamF']
+    
+    data_streams = ['zsc2_rsamF','zsc2_mfF','zsc2_hfF','zsc2_dsarF','diff_zsc2_rsamF','diff_zsc2_mfF','diff_zsc2_hfF','diff_zsc2_dsarF',
+        'log_zsc2_rsamF','log_zsc2_mfF','log_zsc2_hfF','log_zsc2_dsarF']
+    #data_streams = ['zsc2_hfF']
+    data_streams = ['log_zsc2_rsamF', 'zsc2_hfF']
+    #data_streams = ['zsc2_hfF']
 
     # load feature matrices for WIZ and FWVZ
     fm0 = ForecastModelCombined(window=2., overlap=0.75, look_forward=2., data_streams=data_streams,
-        root='combined_forecaster', savefile_type='csv', stations=['WIZ','FWVZ'])#,'KRVZ']) 'FWVZ', 
+        root='combined_forecaster', savefile_type='pkl', stations=['PV6'])#'WIZ','FWVZ'])#,'KRVZ']) 'FWVZ', 
     
     # drop all Fourier coefficients sampling at higher than 1/4 Nyquist
     freq_max = fm0.dtw//fm0.dt//4
@@ -338,20 +344,20 @@ def combined_forecaster():
 
     #for d in fm0.data._datas:
     #    d.update()
-    
+
     for j, station in enumerate(fm0.data._datas):
         print('Training from station: '+station.station+' ('+str(j+1)+'/'+str(len(fm0.data._datas))+')')
         for i,te in enumerate(station.tes):
             
             fm = ForecastModelCombined(window=2., overlap=0.5, look_forward=2., data_streams=data_streams,
-                root='combined_forecaster_{:s}_e{:d}'.format(station.station,i+1), savefile_type='csv', 
+                root='combined_forecaster_{:s}_e{:d}'.format(station.station,i+1), savefile_type='pkl', 
                 stations=fm0.stations)
 
             exclude_dates = [[te-month, te+month, station.station]]
 
             print('Eruption: '+str(te.year)+' ('+str(i+1)+'/'+str(len(station.tes))+')')
 
-            fm.train(drop_features=drop_features, retrain=True, Ncl=500, n_jobs=n_jobs, 
+            fm.train(drop_features=drop_features, retrain=False, Ncl=500, n_jobs=n_jobs, 
                 exclude_dates=exclude_dates)        
         
             ys = fm.hires_forecast(ti=te-2*fm.dtw-fm.dtf, tf=te+month/28., station=station.station,
