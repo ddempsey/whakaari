@@ -197,34 +197,15 @@ class TremorData(object):
         """ Load existing file and check date range of data.
         """
         # get eruptions
-<<<<<<< HEAD
-        with open(os.sep.join(getfile(currentframe()).split(os.sep)[:-2]+['data','eruptive_periods.txt']),'r') as fp:
-=======
         with open(self._wd(self.station+'_eruptive_periods.txt'),'r') as fp:
->>>>>>> d8a69ded0a6bead1e718ddea9c2b392550938e23
             self.tes = [datetimeify(ln.rstrip()) for ln in fp.readlines()]
         # check if data file exists
         self.exists = os.path.isfile(self.file)
         if not self.exists:
-<<<<<<< HEAD
-            if self.station == 'WIZ':
-                t0 = datetime(2011,1,1)
-                t1 = datetime(2011,1,2)
-            elif self.station == 'WSRZ':
-                t0 = datetime(2013,5,1)
-                t1 = datetime(2013,5,2)
-            elif self.station in ['FWVZ','KRVZ']:
-                t0 = datetime(2006,1,1)
-                t1 = datetime(2006,1,2)
-            else:
-                raise ValueError("No file for {:s} - when should I start downloading?".format(self.station))
-            self.update(t0,t1)
-=======
             cols = self._all_cols()
             # pd.DataFrame(zip(*datas), columns=columns, index=pd.Series(time))
             df = pd.DataFrame(columns=cols)
             df.to_csv(self.file, index_label='time')
->>>>>>> d8a69ded0a6bead1e718ddea9c2b392550938e23
         # check date of latest data in file
         self.df = load_dataframe(self.file, index_col=0, parse_dates=[0,], infer_datetime_format=True)
         if len(self.df.index)>0:
@@ -312,8 +293,6 @@ class TremorData(object):
 
                 self.df['zsc2_'+col] = self.df['zsc2_'+col].rolling(window=2).min()
                 self.df['zsc2_'+col][0] = self.df['zsc2_'+col][1]
-<<<<<<< HEAD
-=======
             if self._check_transform('log_zsc2_'+col):
                                 # log data
                 dt = np.log10(self.df[col]).replace([np.inf, -np.inf], np.nan).dropna()
@@ -356,7 +335,6 @@ class TremorData(object):
                 self.df['diff_zsc2_'+col] = self.df['diff_zsc2_'+col].rolling(window=2).min()
                 self.df['diff_zsc2_'+col] = self.df[col].diff()
                 self.df['diff_zsc2_'+col][0] = 0.
->>>>>>> d8a69ded0a6bead1e718ddea9c2b392550938e23
     def _is_eruption_in(self, days, from_time):
         """ Binary classification of eruption imminence.
             Parameters:
@@ -408,20 +386,6 @@ class TremorData(object):
 
         # parallel data collection - creates temporary files in ./_tmp
         pars = [[i,ti,self.station] for i in range(ndays)]
-<<<<<<< HEAD
-        n_jobs = self.n_jobs if n_jobs is None else n_jobs
-        p = Pool(n_jobs)
-        p.starmap(get_data_for_day, pars)
-        p.close()
-        p.join()
-
-        # special case of no file to update - create new file
-        if not self.exists:
-            shutil.copyfile('_tmp/_tmp_fl_00000.csv',self.file)
-            self.exists = True
-            shutil.rmtree('_tmp')
-            return
-=======
         n_jobs = self.n_jobs if n_jobs is None else n_jobs   
         if n_jobs == 1: # serial 
             print('Station '+self.station+': Downloading data in serial')
@@ -438,7 +402,6 @@ class TremorData(object):
             p.starmap(get_data_for_day, pars)
             p.close()
             p.join()
->>>>>>> d8a69ded0a6bead1e718ddea9c2b392550938e23
 
         # read temporary files in as dataframes for concatenation with existing data
         cols = self._all_cols()
@@ -466,8 +429,6 @@ class TremorData(object):
         save_dataframe(self.df, self.file, index=True)
         self.ti = self.df.index[0]
         self.tf = self.df.index[-1]
-<<<<<<< HEAD
-=======
     def _probe_start(self, before=None):
         ''' Tries to figue out when the first available data for a station is.
         '''  
@@ -475,8 +436,6 @@ class TremorData(object):
         client = FDSNClient(s['client_name'])    
         site = client.get_stations(station=self.station, level="response", channel=s['channel'])
         return site.networks[0].stations[0].start_date
-
->>>>>>> d8a69ded0a6bead1e718ddea9c2b392550938e23
     def get_data(self, ti=None, tf=None):
         """ Return tremor data in requested date range.
             Parameters:
@@ -503,9 +462,6 @@ class TremorData(object):
         # subset data
         inds = (self.df.index>=ti)&(self.df.index<tf)
         return self.df.loc[inds]
-<<<<<<< HEAD
-    
-=======
     def plot(self, data_streams='rsam', save='tremor_data.png', ylim=None):
         """ Plot tremor data.
 
@@ -699,7 +655,6 @@ class TremorData(object):
         #plt.show()
         plt.savefig('../data/plots/'+self.station+'_data_itp.png', dpi=400)
 
->>>>>>> d8a69ded0a6bead1e718ddea9c2b392550938e23
 class ForecastModel(object):
     """ Object for train and running forecast models.
         
@@ -831,14 +786,9 @@ class ForecastModel(object):
         plot_feature_correlation
             Corner plot of feature correlation.
     """
-<<<<<<< HEAD
-    def __init__(self, window, overlap, look_forward, exclude_dates=[], station='WIZ', ti=None, tf=None, 
-        data_streams=['rsam','mf','hf','dsar'], root=None, savefile_type='pkl', feature_root=None, feature_dir=None):
-=======
     def __init__(self, window, overlap, look_forward, exclude_dates=[], station=None, ti=None, tf=None, 
         data_streams=['rsam','mf','hf','dsar'], root=None, savefile_type='pkl', feature_root=None, 
         feature_dir=None, data_dir=None):
->>>>>>> d8a69ded0a6bead1e718ddea9c2b392550938e23
         self.window = window
         self.overlap = overlap
         self.station = station
@@ -1105,8 +1055,6 @@ class ForecastModel(object):
         t1 = df.index[-1]+self.dt
         print('{:s} feature extraction {:s} to {:s}'.format(df.columns[0], t0.strftime('%Y-%m-%d'), t1.strftime('%Y-%m-%d')))
         return extract_features(df, **kw)
-<<<<<<< HEAD
-=======
     def _const_wd_extr_ft(self, Nw, ti, ds, indx = None):
         'Construct windows, extract features and return dataframe'
         # features to compute
@@ -1125,7 +1073,6 @@ class ForecastModel(object):
         fm.index = pd.Series(wd)
         fm.index.name = 'time'
         return fm 
->>>>>>> d8a69ded0a6bead1e718ddea9c2b392550938e23
     def _ftfl(self,ds,yr):
         ''' Feature file name by data stream and year.
         '''
@@ -2319,23 +2266,13 @@ def get_data_for_day(i,t0,station):
     datas = []
     columns = []
     try:
-<<<<<<< HEAD
-        site = client.get_stations(starttime=t0+i*daysec, endtime=t0 + (i+1)*daysec, station=station, level="response", channel="HHZ")
-    except FDSNNoDataException:
-        pass
-=======
         site = client.get_stations(starttime=t0+i*daysec, endtime=t0 + (i+1)*daysec, station=station, level="response", channel=S['channel'])
     except (FDSNNoDataException, FDSNException):
         return
->>>>>>> d8a69ded0a6bead1e718ddea9c2b392550938e23
 
     pad_f=0.1
     try:
-<<<<<<< HEAD
-        WIZ = client.get_waveforms('NZ',station, "10", "HHZ", t0+i*daysec, t0 + (i+1)*daysec)
-=======
         st = client.get_waveforms(S['network'],station, S['location'], S['channel'], t0+(i-pad_f)*daysec, t0 + (i+1+pad_f)*daysec)
->>>>>>> d8a69ded0a6bead1e718ddea9c2b392550938e23
         
         # if less than 1 day of data, try different client
         data = get_data_from_stream(st, site)
