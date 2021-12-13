@@ -141,11 +141,7 @@ def extract_all():
     ss = ['KRVZ','FWVZ','WIZ']
     ss = ['PV6']
     ## window sizes (days)
-<<<<<<< HEAD
-    ws = [365.]#, 90., 365.]
-=======
     ws = [2.] #, 14., 90., 365.]
->>>>>>> d8a69ded0a6bead1e718ddea9c2b392550938e23
 
     ## Run parallelization 
     ps = []
@@ -153,14 +149,7 @@ def extract_all():
         for d in ds:
             for w in ws:
                 ps.append([w,s,d])
-<<<<<<< HEAD
-    
-    extract_one(ps[0])
-    return
-    n_jobs = 8 # number of cores
-=======
     n_jobs = 5 # number of cores
->>>>>>> d8a69ded0a6bead1e718ddea9c2b392550938e23
     p = Pool(n_jobs)
     p.map(extract_one, ps)
 
@@ -168,7 +157,6 @@ def extract_one(p):
     ''' Load data from a certain station, window size, and datastream (auxiliary function for parallelization)
     p = [window size, station, datastream] '''
     w,s,d = p
-<<<<<<< HEAD
     if w == 14.:
         o = 1.-6./(w*24*6)
     elif w == 90.:
@@ -177,12 +165,6 @@ def extract_one(p):
         o = 1.-24.*6./(w*24*6)
     fm = ForecastModel(window=w, overlap=o, station = s,
         look_forward=2., data_streams=[d], feature_dir=r'U:\EruptionForecasting\eruptions\features\\', savefile_type='pkl') 
-=======
-    #fm = ForecastModel(window=w, overlap=1., station = s,
-    #    look_forward=2., data_streams=[d], feature_dir='/media/eruption_forecasting/eruptions/features/', savefile_type='pkl') 
-    fm = ForecastModel(window=w, overlap=1., station = s,
-        look_forward=2., data_streams=[d], savefile_type='csv') 
->>>>>>> d8a69ded0a6bead1e718ddea9c2b392550938e23
     fm._load_data(datetimeify(fm.ti_model), datetimeify(fm.tf_model), None)
 
 def forecast_now():
