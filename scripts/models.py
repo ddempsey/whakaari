@@ -114,7 +114,7 @@ def model(root, data_streams, Ncl=100):
 
 def calibration(root, data_streams, Ncl=100):
     # create sub-models for probability calibration
-    for eruption in range(1,5)[::-1]:
+    for eruption in range(1,6)[::-1]:
         print(eruption)
         discriminability(root, data_streams, Ncl, eruption)
         continue
@@ -130,7 +130,7 @@ def main():
     # td.update()
 
     # # model 0: evaluation of operational forecaster over 18 months
-    # # evaluation()
+    #evaluation()
     # data_streams = ['zsc2_rsamF','zsc2_mfF','zsc2_hfF','zsc2_dsarF']
     # model(root='transformed2',data_streams=data_streams, Ncl=500)
 

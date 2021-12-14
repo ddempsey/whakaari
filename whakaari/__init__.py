@@ -932,7 +932,7 @@ class ForecastModel(object):
         makedir(self.featdir)
 
         # check special case of large (hires) order
-        if yr is None and (self.io+1 == self.iw):            
+        if yr is None:# and (self.io+1 == self.iw):            
             # divide training period into years
             for yr in list(range(ti.year, tf.year+1)):                
                 # set up monthly iteration
