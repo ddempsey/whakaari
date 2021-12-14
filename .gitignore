@@ -1,6 +1,8 @@
 __pycache__/
 *.py[cod]
 data/*.csv
+data/*.zip
+data/img
 models/
 features/
 predictions/
@@ -9,6 +11,7 @@ controller/
 scripts/*.pkl
 !scripts/online_WIZ_isotonic_calibrator.pkl
 scripts/posteriors/
+scripts/frames*
 _tmp/
 .vscode/
 *.png

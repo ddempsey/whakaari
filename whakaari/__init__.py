@@ -436,7 +436,6 @@ class TremorData(object):
         client = FDSNClient(s['client_name'])    
         site = client.get_stations(station=self.station, level="response", channel=s['channel'])
         return site.networks[0].stations[0].start_date
-
     def get_data(self, ti=None, tf=None):
         """ Return tremor data in requested date range.
             Parameters:
