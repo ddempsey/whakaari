@@ -20,9 +20,10 @@ import numpy as np
 from matplotlib import pyplot as plt
 
 _MONTH = timedelta(days=365.25/12)
-FEATURE_DIR = r'E:\whakaari\features'
-FEATURE_DIR = r'/media/eruption_forecasting/eruptions/features'
-DATA_DIR = r'/media/eruption_forecasting/eruptions/data'
+FEATURE_DIR = r'U:\EruptionForecasting\eruptions\features'
+DATA_DIR = r'U:\EruptionForecasting\eruptions\data'
+# FEATURE_DIR = r'/media/eruption_forecasting/eruptions/features'
+# DATA_DIR = r'/media/eruption_forecasting/eruptions/data'
 
 def evaluation():
     # setup forecast model

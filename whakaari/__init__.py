@@ -15,6 +15,7 @@ from glob import glob
 from obspy.clients.fdsn.header import FDSNException
 import pandas as pd
 from pandas._libs.tslibs.timestamps import Timestamp
+from tqdm import tqdm
 from multiprocessing import Pool
 from textwrap import wrap
 from time import time, sleep
@@ -382,7 +383,6 @@ class TremorData(object):
         tf = datetimeify(tf)
 
         ndays = (tf-ti).days
-        # ndays = 5
 
         # parallel data collection - creates temporary files in ./_tmp
         pars = [[i,ti,self.station] for i in range(ndays)]
@@ -420,11 +420,6 @@ class TremorData(object):
             save_dataframe(self.df, self.file[:-4]+'_nitp'+self.file[-4:], index=True)
 
         self.df = self.df.resample('10T').interpolate('linear')
-
-        # # remove artefact in computing dsar
-        # for i in range(1,int(np.floor(self.df.shape[0]/(24*6)))): 
-        #     ind = i*24*6
-        #     self.df['dsar'][ind] = 0.5*(self.df['dsar'][ind-1]+self.df['dsar'][ind+1])
 
         save_dataframe(self.df, self.file, index=True)
         self.ti = self.df.index[0]
@@ -847,7 +842,7 @@ class ForecastModel(object):
             self.featdir = r'{:s}/features'.format(self.rootdir)
         else:
             self.featdir = feature_dir
-        self.featfile = lambda ftfl,ds: (r'{:s}/fm_{:3.2f}w_{:s}_{:s}'.format(self.featdir,self.window, ds, self.station)+'{:s}.'+self.savefile_type).format(ftfl)
+        self.featfile = lambda ds,yr: (r'{:s}/fm_{:3.2f}w_{:s}_{:s}_{:d}.{:s}'.format(self.featdir,self.window,ds,self.station,yr,self.savefile_type))
         self.preddir = r'{:s}/predictions/{:s}'.format(self.rootdir, self.root)
     # private helper methods
     def _detect_model(self):
@@ -869,186 +864,185 @@ class ForecastModel(object):
                 self.classifier = classifier
                 return
         raise ValueError("did not recognise models in '{:s}'".format(self._use_model))
-    def _construct_windows(self, Nw, ti, ds, i0=0, i1=None):
-        """ Create overlapping data windows for feature extraction.
-            Parameters:
-            -----------
-            Nw : int
-                Number of windows to create.
-            ti : datetime.datetime
-                End of first window.
-            i0 : int
-                Skip i0 initial windows.
-            i1 : int
-                Skip i1 final windows.
-            Returns:
-            --------
-            df : pandas.DataFrame
-                Dataframe of windowed data, with 'id' column denoting individual windows.
-            window_dates : list
-                Datetime objects corresponding to the beginning of each data window.
+    def _construct_windows(self, Nw, ti, ds, i0=0, i1=None, indx = None):
+        """
+        Create overlapping data windows for feature extraction.
+
+        Parameters:
+        -----------
+        Nw : int
+            Number of windows to create.
+        ti : datetime.datetime
+            End of first window.
+        i0 : int
+            Skip i0 initial windows.
+        i1 : int
+            Skip i1 final windows.
+        indx : list of datetime.datetime
+            Computes only windows for requested index list
+
+        Returns:
+        --------
+        df : pandas.DataFrame
+            Dataframe of windowed data, with 'id' column denoting individual windows.
+        window_dates : list
+            Datetime objects corresponding to the beginning of each data window.
         """
         if i1 is None:
             i1 = Nw
+        if not indx:
+            # get data for windowing period
+            df = self.data.get_data(ti-self.dtw, ti+(Nw-1)*self.dto)[[ds,]]
+            # create windows
+            dfs = []
+            for i in range(i0, i1):
+                dfi = df[:].iloc[i*(self.iw-self.io):i*(self.iw-self.io)+self.iw]
+                try:
+                    dfi['id'] = pd.Series(np.ones(self.iw, dtype=int)*i, index=dfi.index)
+                except ValueError:
+                    print('this shouldn\'t be happening')
+                dfs.append(dfi)
+            df = pd.concat(dfs)
+            window_dates = [ti + i*self.dto for i in range(Nw)]
+            return df, window_dates[i0:i1]
+        else:
+            # get data for windowing define in indx
+            dfs = []
+            for i, ind in enumerate(indx): # loop over indx
+                ind = np.datetime64(ind).astype(datetime)
+                dfi = self.data.get_data(ind-self.dtw, ind)[[ds,]].iloc[:]
+                try:
+                    dfi['id'] = pd.Series(np.ones(self.iw, dtype=int)*i, index=dfi.index)
+                except ValueError:
+                    print('this shouldn\'t be happening')
+                dfs.append(dfi)
+            df = pd.concat(dfs)
+            window_dates = indx
+            return df, window_dates
+    def _extract_features(self, ti, tf, ds):
+        """
+            Extract features from windowed data.
 
-        # get data for windowing period
-        df = self.data.get_data(ti-self.dtw, ti+(Nw-1)*self.dto)[[ds,]]
-
-        # create windows
-        dfs = []
-        for i in range(i0, i1):
-            dfi = df[:].iloc[i*(self.iw-self.io):i*(self.iw-self.io)+self.iw]
-            try:
-                dfi['id'] = pd.Series(np.ones(self.iw, dtype=int)*i, index=dfi.index)
-            except ValueError:
-                print('this shouldn\'t be happening')
-            dfs.append(dfi)
-        df = pd.concat(dfs)
-        window_dates = [ti + i*self.dto for i in range(Nw)]
-        return df, window_dates[i0:i1]
-    def _extract_features(self, ti, tf, ds, yr=None):
-        """ Extract features from windowed data.
             Parameters:
             -----------
             ti : datetime.datetime
                 End of first window.
             tf : datetime.datetime
                 End of last window.
-            ds : str
-                Data-stream to compute features for.
-            yr : int
-                Year to compute features for. If None and hires, recursion will activate.
+
             Returns:
             --------
             fm : pandas.Dataframe
                 tsfresh feature matrix extracted from data windows.
             ys : pandas.Dataframe
                 Label vector corresponding to data windows
+
             Notes:
             ------
             Saves feature matrix to $rootdir/features/$root_features.csv to avoid recalculation.
         """
-
         makedir(self.featdir)
-
-        # check special case of large (hires) order
-        if yr is None:# and (self.io+1 == self.iw):            
-            # divide training period into years
-            for yr in list(range(ti.year, tf.year+1)):                
-                # set up monthly iteration
-                    # start of current year, min start of data plus window length
-                yr0 = np.max([datetime(*[yr, 1, 1, 0, 0, 0]) ,self.data.ti+self.dtw])
-                    # start of next year
-                yr1 = datetime(*[yr+1, 1, 1, 0, 0, 0])-self.dt
-                tiy = np.max([yr0, ti])                     # start of feature matrix
-                t1s = [datetime(*[yr, i, 1, 0, 0, 0]) for i in range(2,13)] + [yr1]                
-                
-                # check if FM already exists
-                ftfl = self._ftfl(ds,yr)
-                if os.path.isfile(ftfl):
-                    t = pd.to_datetime(load_dataframe(ftfl, index_col=0, parse_dates=['time'], usecols=['time'], infer_datetime_format=True).index.values)
-                    ti0,tf0 = t[0],t[-1]
-                    if yr0 == ti0 and (yr1 == tf0 or tf == tf0):
-                        continue
-
-                # monthly feature extraction jobs
-                for t1 in t1s:
-                    if t1 < tiy: 
-                        continue
-                    elif t1 > tf:
-                        t1 = tf
-                    self._extract_features(tiy,t1,ds,yr)
-                    if t1 == tf:
-                        break
-                gc.collect()
-            return
-
         # number of windows in feature request
-        Nw = int(np.floor(((tf-ti)/self.dt)/(self.iw-self.io)))+1
-
-        # features to compute
-        cfp = ComprehensiveFCParameters()
-        if self.compute_only_features:
-            cfp = dict([(k, cfp[k]) for k in cfp.keys() if k in self.compute_only_features])
-        else:
-            # drop features if relevant
-            _ = [cfp.pop(df) for df in self.drop_features if df in list(cfp.keys())]
+        Nw = int(np.floor(((tf-ti)/self.dt-1)/(self.iw-self.io)))+1
+        Nmax = 6*24*31 # max number of construct windows per iteration (6*24*30 windows: ~ a month of hires, overlap of 1.)
 
         # file naming convention
-        ftfl = self._ftfl(ds,yr)
-        kw = {'column_id':'id', 'n_jobs':np.min([self.n_jobs,8]), 
-            'default_fc_parameters':cfp, 'impute_function':impute}
-        
-        # check if feature matrix already exists and what it contains
-        if os.path.isfile(ftfl):
-            t = pd.to_datetime(load_dataframe(ftfl, index_col=0, parse_dates=['time'], usecols=['time'], infer_datetime_format=True).index.values)
-            ti0,tf0 = t[0],t[-1]
-            Nw0 = len(t)
-            hds = load_dataframe(ftfl, index_col=0, nrows=1)
-            hds = list(set([hd.split('__')[1] for hd in hds]))
+        yr = ti.year
+        ftfl = self.featfile(ds,yr)
 
-            # option 1, expand rows
-            pad_left = int((ti0-ti)/self.dto)# if ti < ti0 else 0
-            pad_right = int(((ti+(Nw-1)*self.dto)-tf0)/self.dto)# if tf > tf0 else 0
-            i0 = abs(pad_left) if pad_left<0 else 0
-            i1 = Nw0 + max([pad_left,0]) + pad_right
-            
-            # option 2, expand columns
-            existing_cols = set(hds)        # these features already calculated, in file
-            new_cols = set(cfp.keys()) - existing_cols     # these features to be added
-            more_cols = bool(new_cols)
-            all_cols = existing_cols|new_cols
-            cfp = ComprehensiveFCParameters()
-            cfp = dict([(k, cfp[k]) for k in cfp.keys() if k in all_cols])
+        # condition on the existence of fm save for the year requested
+        if os.path.isfile(ftfl): # check if feature matrix file exists
+            # load existing feature matrix
+            fm_pre = load_dataframe(ftfl, index_col=0, parse_dates=['time'], infer_datetime_format=True, header=0, skiprows=None, nrows=None)
+            # request for features, labeled by index
+            l1 = [np.datetime64(ti + i*self.dto) for i in range(Nw)]
+            # read the existing feature matrix file (index column only) for current computed features
+            # testing
+            l2 = fm_pre.index
+            # identify new features for calculation
+            l3 = list(set(l1)-set(l2))
+            # alternative to last to commands
+            l2 = load_dataframe(ftfl, index_col=0, parse_dates=['time'], usecols=['time'], infer_datetime_format=True).index.values
+            l3 = []
+            [l3.append(l1i.astype(datetime)) for l1i in l1 if l1i not in l2]
+            # end testing
+            # check is new features need to be calculated (windows)
+            if l3 == []: # all features requested already calculated
+                # load requested features (by index) and generate fm
+                fm = fm_pre[fm_pre.index.isin(l1, level=0)]
+                del fm_pre, l1, l2, l3
 
-            # option 3, expand both
-            if any([more_cols, pad_left > 0, pad_right > 0]) and self.update_feature_matrix:
-                fm = load_dataframe(ftfl, index_col=0, parse_dates=['time'], infer_datetime_format=True)
-                if more_cols:
-                    # expand columns now
-                    df0, wd = self._construct_windows(Nw0, ti0, ds)
-                    cfp0 = ComprehensiveFCParameters()
-                    cfp0 = dict([(k, cfp0[k]) for k in cfp0.keys() if k in new_cols])
-                    kw0=copy(kw)
-                    kw0['default_fc_parameters']=cfp0
-                    fm2 = self._extract_featuresX(df0, **kw0)
-                    fm2.index = pd.Series(wd)
-                    fm2.index.name = 'time'
-                    
-                    fm = pd.concat([fm,fm2], axis=1, sort=False)
+            else: # calculate new features and add to existing saved feature matrix
+                # note: if len(l3) too large for max number of construct windows (say Nmax) l3 is chunked
+                # into subsets smaller of Nmax and call construct_windows/extract_features on these subsets
+                if len(l3) >= Nmax: # condition on length of requested windows
+                    # divide l3 in subsets
+                    n_sbs = int(Nw/Nmax)+1
+                    def chunks(lst, n):
+                        'Yield successive n-sized chunks from lst'
+                        for i in range(0, len(lst), n):
+                            yield lst[i:i + n]
+                    l3_sbs =  chunks(l3,int(Nw/n_sbs))
+                    # copy existing feature matrix (to be filled and save)
+                    fm = pd.concat([fm_pre])
+                    # loop over subsets
+                    for l3_sb in l3_sbs:
+                        # generate dataframe for subset
+                        fm_new = self._const_wd_extr_ft(Nw, ti, ds, indx = l3_sb)
+                        # concatenate subset with existing feature matrix
+                        fm = pd.concat([fm, fm_new])
+                        del fm_new
+                        # sort new updated feature matrix and save (replace existing one)
+                        fm.sort_index(inplace=True)
+                        save_dataframe(fm, ftfl, index=True, index_label='time')
+                else:
+                    # generate dataframe
+                    fm = self._const_wd_extr_ft(Nw, ti, ds, indx = l3)
+                    fm = pd.concat([fm_pre, fm])
+                    # sort new updated feature matrix and save (replace existing one)
+                    fm.sort_index(inplace=True)
+                    save_dataframe(fm, ftfl, index=True, index_label='time')
+                # keep in feature matrix (in memory) only the requested windows
+                fm = fm[fm.index.isin(l1, level=0)]
+                #
+                del fm_pre, l1, l2, l3
 
-                # check if updates required because training period expanded
-                    # expanded earlier
-                if pad_left > 0:
-                    df, wd = self._construct_windows(Nw, ti, ds, i1=pad_left)
-                    fm2 = self._extract_featuresX(df, **kw)
-                    fm2.index = pd.Series(wd)
-                    fm2.index.name = 'time'
-                    fm = pd.concat([fm2,fm], sort=False)
-                    # expanded later
-                if pad_right > 0:
-                    df, wd = self._construct_windows(Nw, ti, ds, i0=Nw - pad_right)
-                    fm2 = self._extract_featuresX(df, **kw)
-                    fm2.index = pd.Series(wd)
-                    fm2.index.name = 'time'
-                    fm = pd.concat([fm,fm2], sort=False)
-                
-                # write updated file output
-                save_dataframe(fm, ftfl, index=True, index_label='time')
-                # trim output
-                fm = fm.iloc[i0:i1]    
-            else:
-                # read relevant part of matrix
-                fm = load_dataframe(ftfl, index_col=0, parse_dates=['time'], infer_datetime_format=True, header=0, skiprows=range(1,i0+1), nrows=i1-i0)
         else:
-            # create feature matrix from scratch   
-            df, wd = self._construct_windows(Nw, ti, ds)
-            fm = self._extract_featuresX(df, **kw)
-            fm.index = pd.Series(wd)
-            fm.index.name = 'time'
-            save_dataframe(fm, ftfl, index=True, index_label='time')
-            
+            # note: if Nw is too large for max number of construct windows (say Nmax) the request is chunk
+            # into subsets smaller of Nmax and call construct_windows/extract_features on these subsets
+            if Nw >= Nmax: # condition on length of requested windows
+                # divide request in subsets
+                n_sbs = int(Nw/Nmax)+1
+                def split_num(num, div):
+                    'List of number of elements subsets of num divided by div'
+                    return [num // div + (1 if x < num % div else 0)  for x in range (div)]
+
+                Nw_ls = split_num(Nw, n_sbs)
+                ## fm for first subset
+                # generate dataframe
+                fm = self._const_wd_extr_ft(Nw_ls[0], ti, ds)
+                save_dataframe(fm, ftfl, index=True, index_label='time')
+                # aux intial time (vary for each subset)
+                ti_aux = ti+(Nw_ls[0])*self.dto
+                # loop over the rest subsets
+                for Nw_l in Nw_ls[1:]:
+                    # generate dataframe
+                    fm_new = self._const_wd_extr_ft(Nw_l, ti_aux, ds)
+                    # concatenate
+                    fm = pd.concat([fm, fm_new])
+                    # increase aux ti
+                    ti_aux = ti_aux+(Nw_l)*self.dto
+                    save_dataframe(fm, ftfl, index=True, index_label='time')
+                # end working section
+                del fm_new
+            else:
+                # generate dataframe
+                fm = self._const_wd_extr_ft(Nw, ti, ds)
+                save_dataframe(fm, ftfl, index=True, index_label='time')
+
+        # Label vector corresponding to data windows
         ys = pd.DataFrame(self._get_label(fm.index.values), columns=['label'], index=fm.index)
+        gc.collect()
         return fm, ys
     def _extract_featuresX(self, df, **kw):
         t0 = df.index[0]+self.dtw
@@ -1073,11 +1067,6 @@ class ForecastModel(object):
         fm.index = pd.Series(wd)
         fm.index.name = 'time'
         return fm 
-    def _ftfl(self,ds,yr):
-        ''' Feature file name by data stream and year.
-        '''
-        ftfl = '_{:d}'.format(yr)
-        return self.featfile(ftfl,ds)   
     def _get_label(self, ts):
         """ Compute label vector.
             Parameters:
@@ -1090,7 +1079,7 @@ class ForecastModel(object):
                 Label vector.
         """
         return [self.data._is_eruption_in(days=self.look_forward, from_time=t) for t in pd.to_datetime(ts)]
-    def _load_data(self, ti, tf, yr=None):
+    def _load_data(self, ti, tf):
         """ Load feature matrix and label vector.
             Parameters:
             -----------
@@ -1120,33 +1109,35 @@ class ForecastModel(object):
         if ti < self.data.ti:
             raise ValueError("Model start date '{:s}' predates data range '{:s}'".format(ti, self.data.ti))
         
-        if yr is None:
-        # divide training period into years
-            ts = [datetime(*[yr, 1, 1, 0, 0, 0]) for yr in list(range(ti.year+1, tf.year+1))]
-            if ti - self.dtw < self.data.ti:
-                ti = self.data.ti + self.dtw
-            ts.insert(0,ti)
-            ts.append(tf)
-        else:
-        # get hires data for one year, presumed to already have been calculated
-            ts = [ti,tf]
-
-        fM = []
+        # subdivide load into years
+        ts = []
+        for yr in list(range(ti.year, tf.year+2)):
+            t = np.max([datetime(yr,1,1,0,0,0),ti,self.data.ti+self.dtw])
+            t = np.min([t,tf,self.data.tf])
+            ts.append(t)
+        if ts[-1] == ts[-2]: ts.pop()
+        
+        # load features one data stream and year at a time
+        FM = []
         ys = []
         for ds in self.data_streams:
+            fM = []
+            ys = []
             for t0,t1 in zip(ts[:-1], ts[1:]):
-                fMi,y = self._extract_features(ti,t1,ds,t0.year)
-            fM.append(fMi)
-            ys.append(y)
-        #fM = pd.concat(fM, axis=1, sort=False)
-        fM = pd.concat(fM, sort=False)
+                fMi,y = self._extract_features(t0,t1,ds)
+                fM.append(fMi)
+                ys.append(y)
+            # vertical concat on time
+            FM.append(pd.concat(fM))
+        # horizontal concat on column
+        FM = pd.concat(FM, axis=1, sort=False)
         ys = pd.concat(ys)
-
+        
         self.ti_prev = ti
         self.tf_prev = tf
-        self.fM = fM
+        self.fM = FM
         self.ys = ys
-        return fM, ys
+        return FM, ys
     def _drop_features(self, X, drop_features):
         """ Drop columns from feature matrix.
             Parameters:
@@ -1424,7 +1415,7 @@ class ForecastModel(object):
             _ = [os.remove(fl) for fl in  glob('{:s}/*'.format(self.modeldir))]
 
         # get feature matrix and label vector
-        fM, ys = self._load_data(self.ti_train, self.tf_train, None)
+        fM, ys = self._load_data(self.ti_train, self.tf_train)
 
         # manually drop features (columns)
         fM = self._drop_features(fM, drop_features)
@@ -1495,8 +1486,8 @@ class ForecastModel(object):
 
             # use hires feature matrices for each year
             for yr in list(range(ti.year, tf.year+1)):
-                t0 = np.max([datetime(yr,1,1,0,0,0),ti])
-                t1 = np.min([datetime(yr+1,1,1,0,0,0),tf])
+                t0 = np.max([datetime(yr,1,1,0,0,0),ti,self.data.ti+self.dtw])
+                t1 = np.min([datetime(yr+1,1,1,0,0,0),tf,self.data.tf])
                 forecast_i = self.forecast(t0,t1,recalculate,use_model,n_jobs,yr)    
                 forecast.append(forecast_i)
 
@@ -1567,35 +1558,37 @@ class ForecastModel(object):
         # generate new predictions
         if len(run_predictions)>0:
             # load feature matrix
-            fM,_ = self._load_data(ti, self.tf_forecast, yr)
+            fM,_ = self._load_data(ti, self.tf_forecast)
             fM = fM.fillna(1.e-8)
             if fM.shape[0] == 0: return pd.DataFrame([],columns=['consensus'])
 
-            # setup predictor
-            if self.n_jobs > 1:
-                p = Pool(self.n_jobs)
-                mapper = p.imap
-            else:
-                mapper = map
-            f = partial(predict_one_model, fM, model_path)
+            # # setup predictor
+            # if self.n_jobs > 1:
+            #     p = Pool(self.n_jobs)
+            #     mapper = p.imap
+            # else:
+            #     ys = predict_models(fM, model_path, run_predictions)
+            # f = partial(predict_one_model, fM, model_path)
 
             # run models with glorious progress bar
             #f(run_predictions[0])
-            if False:
-                for i, y in enumerate(mapper(f, run_predictions)):
-                    print(i)
-                    cf = (i+1)/len(run_predictions)
-                    if yr is None:
-                        print(f'forecasting: [{"#"*round(50*cf)+"-"*round(50*(1-cf))}] {100.*cf:.2f}%\r', end='') 
-                    else:
-                        print(f'forecasting {yr:d}: [{"#"*round(50*cf)+"-"*round(50*(1-cf))}] {100.*cf:.2f}%\r', end='') 
-                    ys.append(y)
-            else:
-                ys = p.map(f, run_predictions)
+            # predict_models(fM, model_path, run_predictions)
+            # not parallelized for now
+            ys += predict_models(fM, model_path, run_predictions, yr)
+            # if False:
+            #     for i, y in enumerate(mapper(f, run_predictions)):
+            #         cf = (i+1)/len(run_predictions)
+            #         if yr is None:
+            #             print(f'forecasting: [{"#"*round(50*cf)+"-"*round(50*(1-cf))}] {100.*cf:.2f}%\r', end='') 
+            #         else:
+            #             print(f'forecasting {yr:d}: [{"#"*round(50*cf)+"-"*round(50*(1-cf))}] {100.*cf:.2f}%\r', end='') 
+            #         ys.append(y)
+            # else:
+            #     ys = p.imap(f, run_predictions)
             
-            if self.n_jobs > 1:
-                p.close()
-                p.join()
+            # if self.n_jobs > 1:
+            #     p.close()
+            #     p.join()
         
         # condense data frames and write output
         ys = pd.concat(ys, axis=1, sort=False)
@@ -1608,7 +1601,7 @@ class ForecastModel(object):
         if len(run_predictions)>0:
             del fM
             gc.collect()
-
+            
         return forecast
     def hires_forecast(self, ti, tf, recalculate=True, save=None, root=None, nztimezone=False, 
         n_jobs=None, threshold=0.8, alt_rsam=None, xlim=None):
@@ -1653,9 +1646,7 @@ class ForecastModel(object):
             data_streams=self.data_streams, root=root, savefile_type=self.savefile_type, feature_root=root,
             feature_dir=self.featdir, data_dir=self.data_dir)
         _fm.compute_only_features = list(set([ft.split('__')[1] for ft in self._collect_features()[0]]))
-        #for ds in self.data_streams:
-        #    _fm._extract_features(ti, tf, ds)
-
+        
         # predict on hires features
         ys = _fm.forecast(ti, tf, recalculate, use_model=self.modeldir, n_jobs=n_jobs)
         
@@ -1913,207 +1904,7 @@ class ForecastModel(object):
                 FP[j], FN[j], TP[j], TN[j], dur[j], MCC[j] = self._model_alerts(t, y, threshold, ialert, dti)
 
         return FP, FN, TP, TN, dur, MCC
-    def plot_accuracy(self, ys, save=None):
-        """ Plot performance metrics for model.
-            Parameters:
-            -----------
-            ys : pandas.DataFrame
-                Model forecast returned by ForecastModel.forecast.
-            save : str
-                File name to save figure.
-        """
-        makedir(self.plotdir)
-        if save is None:
-            save = '{:s}/accuracy.png'.format(self.plotdir)
-        
-        thresholds = np.linspace(0.0,1.0,101)
-        FPs, FNs, TPs, TNs, alert_duration, MCC = self.get_performance(ys.index, ys['consensus'], thresholds)
-        
-        with open(save.replace('png','txt'),'w') as fp:
-            fp.write('threshold,FP,FN,TP,TN,alert_fraction,MCC\n')
-            _ = [fp.write('{:4.3f},{:d},{:d},{:d},{:d},{:4.3f},{:4.3f}\n'.format(*vals)) for vals 
-                    in zip(thresholds,FPs,FNs,TPs,TNs,alert_duration,MCC)]
-        # MCC = (TPs*TNs-FPs*FNs)/np.sqrt((TPs+FPs)*(TPs+FNs)*(TNs+FPs)*(TNs+FNs))
-        F1 = 2*TPs/(2*TPs+FPs+FNs)
-        accuracy = (TPs+TNs)/(TPs+TNs+FPs+FNs)
-        f = plt.figure(figsize=(10,10))
-        ax1 = plt.axes([0.1, 0.55, 0.35, 0.35])
-        ax2 = plt.axes([0.6, 0.55, 0.35, 0.35])
-        ax3 = plt.axes([0.1, 0.08, 0.35, 0.35])
-        ax4 = plt.axes([0.6, 0.08, 0.35, 0.35])
-        ax1.plot(thresholds, FPs/(FPs+TPs), 'k-', label='false alert rate')
-        ax1.set_ylabel('false alert rate / FP/(FP+TP)')
-        ax1b = ax1.twinx()
-        ax1b.plot(thresholds, FNs, 'b-')
-        ax1.plot([],[],'b-',label='missed eruptions')
-        ax1b.set_ylabel('missed eruptions / FN')
-        ax1b.set_ylim([-.1, ax1b.get_ylim()[-1]])
-        ax1.legend()
-        ax2.plot(FPs/(FPs+TNs), TPs/(TPs+FNs), 'k-')
-        ax2.set_title('ROC')
-        ax2.set_ylabel('true positive rate')
-        ax2.set_xlabel('false positive rate')
-        ax2.plot([0,1],[0,1],'--', color=[0.5,0.5,0.5])
-        ax3.plot(thresholds, alert_duration, 'k-')
-        ax3.set_ylabel('alert duration')
-        ax4.plot(thresholds, MCC, 'k-', label='MCC')
-        ax4.plot(thresholds, F1, 'b-', label='F1')
-        ax4.plot(thresholds, accuracy, 'g-', label='accuracy')
-        ax4.set_ylabel('score')
-        ax4.set_ylim([0,1])
-        ax4.legend()
-        for ax in [ax1,ax3,ax4]:
-            ax.set_xlabel('alert threshold')
-            ax.set_xlim([0.5,1])
-        
-        plt.savefig(save, dpi=300)
-        plt.close(f)
-    def plot_features(self, N=10, save=None):
-        """ Plot frequency of extracted features by most significant.
-            Parameters:
-            -----------
-            N : int
-                Number of features to plot, ordered by most frequent amongst all classifiers.
-            save : str
-                File name to save figure.
-        """
-        makedir(self.plotdir)
-        if save is None:
-            save = '{:s}/features.png'.format(self.plotdir)
-        
-        feats = []
-        fls = glob('{:s}/*.fts'.format(self.modeldir))
-        for i,fl in enumerate(fls):
-            with open(fl) as fp:
-                lns = fp.readlines()
-            feats += [' '.join(ln.rstrip().split()[1:]) for ln in lns]               
-
-        f = plt.figure(figsize=(8, 16))
-        ax = plt.axes([0.05, 0.05, 0.4, 0.9])
-        height = 0.8
-        # sort features in descending order by frequency of appearance
-        labels = list(set(feats) - set(['']))
-        freqs = [feats.count(label) for label in labels]
-        labels = [label for _,label in sorted(zip(freqs,labels))][::-1]
-        freqs = sorted(freqs)[::-1]
-        fts = copy(labels)
-        
-        N = np.min([N, len(freqs)])
-        labels = ['\n'.join(wrap(' '.join(l.split('_')), 40)) for l in labels ][:N]
-        freqs = freqs[:N]
-        inds = range(len(freqs))
-        ax.barh(inds, np.array(freqs)/len(fls), height=height, color='#90EE90')
-        ax2 = ax.twiny()
-        ax.xaxis.grid()
-        ax2.set_xlim(ax.get_xlim())
-        xm = np.mean(ax.get_xlim())
-        for ind,label in zip(inds,labels):
-            ax.text(xm, ind, label, ha='center', va='center')
-        plt.yticks([])
-        for axi in [ax,ax2]: axi.set_ylim([inds[0]-0.5, inds[-1]+0.5])
-        ax.invert_yaxis()
-        
-        # righthand feature plots
-        axs = []
-        dy1 = 0.9*height/N
-        dy2 = 0.9*(1-height)/N
-        for i in range(N):
-            axi = plt.axes([0.5, 0.05+i*(dy1+dy2)+dy2/2, 0.4, dy1])
-            axi.set_yticks([])
-            axs.append(axi)
-        axs = axs[::-1]
-
-        fM,ys = self._extract_features(self.ti_forecast, self.tf_forecast)
-        inds0 = np.where(ys['label']<1)
-        
-        inds = []
-        for te in self.data.tes:
-            inds.append(np.where((ys['label']>0)&(abs((te-ys.index).total_seconds()/(3600*24))<5.)))
-        cols = ['b','g','r','m','c']
-        
-        N0 = int(np.sqrt(len(inds0[0])/2.))
-
-        for axi, ft in zip(axs,fts):
-            ft0 = np.log10(fM[ft].iloc[inds0]).replace([np.inf, -np.inf], np.nan).dropna()
-            ft0_min = np.mean(ft0)-3*np.std(ft0)
-            ft0 = ft0[ft0>ft0_min]
-            y,e = np.histogram(ft0, N0)
-            x = 0.5*(e[:-1]+e[1:])
-            axi.fill_between(x, [0,]*len(x), y, color='#add8e6', label='all windows')
-            ylim = axi.get_ylim()
-            axi.set_ylim(ylim)
-            ym = np.mean(ylim)
-            dy = (ylim[1]-ylim[0])/(len(inds)+1)
-            for i, ind, col in zip(range(-2,3), inds, cols):
-                ft1 = np.log10(fM[ft].iloc[ind]).replace([np.inf, -np.inf], np.nan).dropna()
-                te = self.data.tes[i+2]
-                lbl = te.strftime('%b')+' '+('{:d}'.format(te.year))
-                axi.scatter(ft1, [ym+dy*i,]*len(ft1), np.arange(1,len(ft1)+1)*6, col, marker='x', label=lbl)
-
-        axs[0].legend(prop={'size':6})
-
-        plt.savefig(save, dpi=300)
-        plt.close(f)
-    def plot_feature_correlation(self, N=20, save=None):
-        """ Corner plot of feature correlation.
-            Parameters:
-            -----------
-            N : int
-                Number of features to plot, ordered by most frequent amongst all classifiers
-            save : str
-                File name to save figure.
-        """
-        makedir(self.plotdir)
-        if save is None:
-            save = '/feature_correlation.png'.format(self.plotdir)
-        
-        # compile feature frequencies
-        feats = []
-        fls = glob('{:s}/*.fts'.format(self.modeldir))
-        for i,fl in enumerate(fls):
-            with open(fl) as fp:
-                lns = fp.readlines()
-            feats += [' '.join(ln.rstrip().split()[1:]) for ln in lns]               
-        labels = list(set(feats) - set(['']))
-        freqs = [feats.count(label) for label in labels]
-
-        labels = [label for _,label in sorted(zip(freqs,labels))][::-1]
-        freqs = sorted(freqs)[::-1]
-        fts = copy(labels)
-        
-        N = np.min([N, len(freqs)])
-        labels = ['\n'.join(wrap(' '.join(l.split('_')), 30)) for l in labels ][:N]
-        
-        f = plt.figure(figsize=(8, 8))
-
-        fM,ys = self._extract_features(self.ti_forecast, self.tf_forecast)
-        filt_df = np.log10(fM[fts[:N]]).replace([np.inf, -np.inf], np.nan).dropna()
-        low, high = [0.005, 0.995]
-        quant_df = filt_df.quantile([low, high])
-        filt_df.index = range(filt_df.shape[0])
-        filt_df = filt_df.apply(lambda x: x[(x>quant_df.loc[low,x.name]) & (x < quant_df.loc[high,x.name])], axis=0)
-        fM[fts[:N]]
-
-        inds = []
-        for te in self.data.tes:
-            inds.append(np.where((ys['label']>0)&(abs((te-ys.index).total_seconds()/(3600*24))<5.)))
-        cols = ['b','g','r','m','c']
-        truths = []
-        for i, ind, col in zip(range(-2,3), inds, cols):
-            truths.append(np.log10(fM[fts[:N]].iloc[ind]).replace([np.inf, -np.inf], np.nan).dropna())
-            #te = self.data.tes[i+2]
-            
-        fig = corner(filt_df.dropna(), labels=labels[:N])
-        axes = np.array(fig.axes).reshape((N, N))
-        for yi in range(N):
-            for xi in range(yi):
-                ax = axes[yi,xi]
-                for col,truth in zip(cols,truths):
-                    ax.scatter(truth[fts[xi]].values, truth[fts[yi]].values, np.arange(1,5)*6, col)
-                            
-        plt.savefig(save,dpi=300)
-        plt.close(fig)
-
+    
 def save_dataframe(df, fl, index=True, index_label=None):
     ''' helper function for saving dataframes
     '''
@@ -2452,11 +2243,47 @@ def train_one_model(fM, ys, Nfts, modeldir, classifier, retrain, random_seed, me
     model_cv.fit(fMt,yst)
     _ = joblib.dump(model_cv.best_estimator_, fl, compress=3)
 
+def predict_models(fM, model_path, flps,yr):
+    ''' helper function to parallelise model forecasting
+    '''
+    ypdfs = []
+    for flp in tqdm(flps, desc='forecasting {:d}'.format(yr)):
+        flp,fl = flp
+        # print('start:',flp)
+
+        if os.path.isfile(fl):
+            ypdf0 = load_dataframe(fl, index_col='time', infer_datetime_format=True, parse_dates=['time'])
+
+        num = flp.split(os.sep)[-1].split('.')[0].split('_')[-1]
+        model = joblib.load(flp)
+        with open(model_path+'{:s}.fts'.format(num)) as fp:
+            lns = fp.readlines()
+        fts = [' '.join(ln.rstrip().split()[1:]) for ln in lns]            
+        
+        if not os.path.isfile(fl):
+            # simulate prediction period
+            yp = model.predict(fM[fts])
+            # save prediction
+            ypdf = pd.DataFrame(yp, columns=['pred{:s}'.format(num)], index=fM.index)
+        else:
+            fM2 = fM.loc[fM.index>ypdf0.index[-1], fts]
+            if fM2.shape[0] == 0:
+                ypdf = ypdf0
+            else:
+                yp = model.predict(fM2)
+                ypdf = pd.DataFrame(yp, columns=['pred{:s}'.format(num)], index=fM2.index)
+                ypdf = pd.concat([ypdf0, ypdf])
+
+        save_dataframe(ypdf, fl, index=True, index_label='time')
+        # print('finish:',flp)
+        ypdfs.append(ypdf)
+    return ypdfs
+
 def predict_one_model(fM, model_path, flp):
     ''' helper function to parallelise model forecasting
     '''
     flp,fl = flp
-    print(flp)
+    print('start:',flp)
 
     if os.path.isfile(fl):
         ypdf0 = load_dataframe(fl, index_col='time', infer_datetime_format=True, parse_dates=['time'])
@@ -2481,8 +2308,8 @@ def predict_one_model(fM, model_path, flp):
             ypdf = pd.DataFrame(yp, columns=['pred{:s}'.format(num)], index=fM2.index)
             ypdf = pd.concat([ypdf0, ypdf])
 
-    # ypdf.to_csv(fl, index=True, index_label='time')
     save_dataframe(ypdf, fl, index=True, index_label='time')
+    print('finish:',flp)
     return ypdf
 
 def datetimeify(t):

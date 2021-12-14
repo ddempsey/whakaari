@@ -11,7 +11,7 @@ Ensure you have Anaconda Python 3.7 installed. Then
 git clone https://github.com/ddempsey/whakaari
 ```
 
-2. CD into the repo, switch to the real-time branch and create a conda environment
+2. CD into the repo, switch to the transfer-learning branch and create a conda environment
 
 ```bash
 cd whakaari
