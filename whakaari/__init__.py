@@ -795,6 +795,7 @@ class ForecastModel(object):
         self.exclude_dates = exclude_dates
         self.look_forward = look_forward
         self.data_streams = data_streams
+        self.data_dir=data_dir
         self.data = TremorData(self.station, parent=self, data_dir=data_dir)
         if any(['_' in ds for ds in data_streams]):
             self.data._compute_transforms()
@@ -817,7 +818,6 @@ class ForecastModel(object):
         self.iw = int(self.window*6*24)         
         self.io = int(self.overlap*self.iw)      
         if self.io == self.iw: self.io -= 1
-
         self.window = self.iw*1./(6*24)
         self.dtw = timedelta(days=self.window)
         if self.ti_model - self.dtw < self.data.ti:
@@ -847,7 +847,7 @@ class ForecastModel(object):
             self.featdir = r'{:s}/features'.format(self.rootdir)
         else:
             self.featdir = feature_dir
-        self.featfile = lambda ds: (r'{:s}/{:3.2f}w_{:3.2f}o_{:s}'.format(self.featdir,self.window, self.overlap, self.station)+'_{:s}.'+self.savefile_type).format(ds)
+        self.featfile = lambda ftfl,ds: (r'{:s}/fm_{:3.2f}w_{:s}_{:s}'.format(self.featdir,self.window, ds, self.station)+'{:s}.'+self.savefile_type).format(ftfl)
         self.preddir = r'{:s}/predictions/{:s}'.format(self.rootdir, self.root)
     # private helper methods
     def _detect_model(self):
@@ -1076,12 +1076,8 @@ class ForecastModel(object):
     def _ftfl(self,ds,yr):
         ''' Feature file name by data stream and year.
         '''
-        ftfl = ds
-        if self.feature_root: 
-            ftfl += '_'+self.feature_root     
-        if yr is not None and not self.feature_root.endswith('_{:d}'.format(yr)): 
-            ftfl += '_{:d}'.format(yr)
-        return self.featfile(ftfl)   
+        ftfl = '_{:d}'.format(yr)
+        return self.featfile(ftfl,ds)   
     def _get_label(self, ts):
         """ Compute label vector.
             Parameters:
@@ -1136,11 +1132,15 @@ class ForecastModel(object):
             ts = [ti,tf]
 
         fM = []
+        ys = []
         for ds in self.data_streams:
             for t0,t1 in zip(ts[:-1], ts[1:]):
-                fMi,ys = self._extract_features(ti,t1,ds,yr)
+                fMi,y = self._extract_features(ti,t1,ds,t0.year)
             fM.append(fMi)
-        fM = pd.concat(fM, axis=1, sort=False)
+            ys.append(y)
+        #fM = pd.concat(fM, axis=1, sort=False)
+        fM = pd.concat(fM, sort=False)
+        ys = pd.concat(ys)
 
         self.ti_prev = ti
         self.tf_prev = tf
@@ -1489,20 +1489,16 @@ class ForecastModel(object):
                 The model consensus, indexed by window date.
         """
         # special case of high resolution forecast where multiple feature matrices exist
-        if yr is None and (self.io+1 == self.iw): 
+        if yr is None: 
             forecast = []
             fr = copy(self.feature_root)
 
             # use hires feature matrices for each year
             for yr in list(range(ti.year, tf.year+1)):
-                # get limits of feature matrix
-                self.feature_root = fr + '_{:d}'.format(yr)
-                ftfl = self.featfile(self.data_streams[0]+'_'+self.feature_root)
-                t = pd.to_datetime(load_dataframe(ftfl, index_col=0, parse_dates=['time'], usecols=['time'], infer_datetime_format=True).index.values)
-                # compute forecast for that year
-                forecast_i = self.forecast(t[0],t[-1],recalculate,use_model,n_jobs,yr)    
+                t0 = np.max([datetime(yr,1,1,0,0,0),ti])
+                t1 = np.min([datetime(yr+1,1,1,0,0,0),tf])
+                forecast_i = self.forecast(t0,t1,recalculate,use_model,n_jobs,yr)    
                 forecast.append(forecast_i)
-            self.feature_root = fr 
 
             # merge the individual forecasts and ensure that original limits are respected
             forecast = pd.concat(forecast, sort=False)
@@ -1512,8 +1508,7 @@ class ForecastModel(object):
         makedir(self.preddir)
         yr_str = '_{:d}'.format(yr) if yr is not None else ''
         confl = '{:s}/consensus{:s}'.format(self.preddir,'{:s}.{:s}'.format(yr_str, self.savefile_type))
-        
-        #
+                #
         if n_jobs is not None: 
             self.n_jobs = n_jobs 
 
@@ -1574,6 +1569,7 @@ class ForecastModel(object):
             # load feature matrix
             fM,_ = self._load_data(ti, self.tf_forecast, yr)
             fM = fM.fillna(1.e-8)
+            if fM.shape[0] == 0: return pd.DataFrame([],columns=['consensus'])
 
             # setup predictor
             if self.n_jobs > 1:
@@ -1584,14 +1580,18 @@ class ForecastModel(object):
             f = partial(predict_one_model, fM, model_path)
 
             # run models with glorious progress bar
-            f(run_predictions[0])
-            for i, y in enumerate(mapper(f, run_predictions)):
-                cf = (i+1)/len(run_predictions)
-                if yr is None:
-                    print(f'forecasting: [{"#"*round(50*cf)+"-"*round(50*(1-cf))}] {100.*cf:.2f}%\r', end='') 
-                else:
-                    print(f'forecasting {yr:d}: [{"#"*round(50*cf)+"-"*round(50*(1-cf))}] {100.*cf:.2f}%\r', end='') 
-                ys.append(y)
+            #f(run_predictions[0])
+            if False:
+                for i, y in enumerate(mapper(f, run_predictions)):
+                    print(i)
+                    cf = (i+1)/len(run_predictions)
+                    if yr is None:
+                        print(f'forecasting: [{"#"*round(50*cf)+"-"*round(50*(1-cf))}] {100.*cf:.2f}%\r', end='') 
+                    else:
+                        print(f'forecasting {yr:d}: [{"#"*round(50*cf)+"-"*round(50*(1-cf))}] {100.*cf:.2f}%\r', end='') 
+                    ys.append(y)
+            else:
+                ys = p.map(f, run_predictions)
             
             if self.n_jobs > 1:
                 p.close()
@@ -1651,10 +1651,10 @@ class ForecastModel(object):
             root = self.root+'_hires'
         _fm = ForecastModel(self.window, 1., self.look_forward, station=self.station, ti=ti, tf=tf, 
             data_streams=self.data_streams, root=root, savefile_type=self.savefile_type, feature_root=root,
-            feature_dir=self.featdir)
+            feature_dir=self.featdir, data_dir=self.data_dir)
         _fm.compute_only_features = list(set([ft.split('__')[1] for ft in self._collect_features()[0]]))
-        for ds in self.data_streams:
-            _fm._extract_features(ti, tf, ds)
+        #for ds in self.data_streams:
+        #    _fm._extract_features(ti, tf, ds)
 
         # predict on hires features
         ys = _fm.forecast(ti, tf, recalculate, use_model=self.modeldir, n_jobs=n_jobs)
@@ -2456,6 +2456,7 @@ def predict_one_model(fM, model_path, flp):
     ''' helper function to parallelise model forecasting
     '''
     flp,fl = flp
+    print(flp)
 
     if os.path.isfile(fl):
         ypdf0 = load_dataframe(fl, index_col='time', infer_datetime_format=True, parse_dates=['time'])

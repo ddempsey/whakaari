@@ -21,13 +21,15 @@ from matplotlib import pyplot as plt
 
 _MONTH = timedelta(days=365.25/12)
 FEATURE_DIR = r'E:\whakaari\features'
+FEATURE_DIR = r'/media/eruption_forecasting/eruptions/features'
+DATA_DIR = r'/media/eruption_forecasting/eruptions/data'
 
 def evaluation():
     # setup forecast model
     n_jobs = 8  
     data_streams = ['rsam','mf','hf','dsar']
     fm = ForecastModel(window=2., overlap=0.75, look_forward=2., data_streams=data_streams, 
-        savefile_type='pkl', station='WIZ', feature_dir=FEATURE_DIR)   
+        savefile_type='pkl', station='WIZ', feature_dir=FEATURE_DIR, data_dir=DATA_DIR)   
 
     # train a model with all eruptions
     drop_features = ['linear_trend_timewise','agg_linear_trend']  
@@ -46,7 +48,7 @@ def reliability(root, data_streams, eruption, Ncl, eruption2=None):
         root += '_p{:d}'.format(eruption2)
     fm = ForecastModel(window=2., overlap=0.75, look_forward=2., data_streams=data_streams,
         root=root, savefile_type='pkl', station='WIZ',
-        feature_dir=FEATURE_DIR)   
+        feature_dir=FEATURE_DIR, data_dir=DATA_DIR)   
 
     # train-test split on five eruptions to compute model confidence of an eruption
         # remove duplicate linear features (because correlated), unhelpful fourier compoents
@@ -75,13 +77,13 @@ def reliability(root, data_streams, eruption, Ncl, eruption2=None):
 
 def discriminability(root, data_streams, Ncl, eruption=None):
     # setup forecast model
-    n_jobs = 8
+    n_jobs =16 
     root = '{:s}_e0'.format(root)
     if eruption is not None:
         root += '{:s}_e{:d}_p0'.format(root, eruption)
     fm = ForecastModel(window=2., overlap=0.75, look_forward=2., data_streams=data_streams,
         root=root, savefile_type='pkl', station='WIZ',
-        feature_dir=FEATURE_DIR)   
+        feature_dir=FEATURE_DIR, data_dir=DATA_DIR, ti=datetimeify('2011-01-01'))   
 
     # remove duplicate linear features (because correlated), unhelpful fourier compoents
     # and fourier harmonics too close to Nyquist
@@ -112,7 +114,7 @@ def model(root, data_streams, Ncl=100):
 
 def calibration(root, data_streams, Ncl=100):
     # create sub-models for probability calibration
-    for eruption in range(1,6):
+    for eruption in range(1,5)[::-1]:
         print(eruption)
         discriminability(root, data_streams, Ncl, eruption)
         continue
