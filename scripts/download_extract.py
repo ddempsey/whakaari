@@ -37,10 +37,11 @@ def extract_all():
     rs = ['rsam','mf','hf','vlf','lf','dsar','vlar','lrar','rmar']
     ds = ['zsc2_'+r+'F' for r in rs]
     ss = ['KRVZ','FWVZ','WIZ','PVV','BELO','OKWR','VNSS','SSLW','REF','VNSS','MEA01','GOD','TBTN','ONTA']
+    ss = ss[:7]
     #ss = ['VNSS']
     #ss = ['PV6']
     ## window sizes (days)
-    ws = [2.,14] #, 14., 90., 365.]
+    ws = [2.] #, 14., 90., 365.]
 
     ## Run parallelization 
     ps = []
@@ -51,7 +52,7 @@ def extract_all():
                 ps.append([w,s,d])
     for fl in glob('*.err'):
         os.remove(fl)
-    n_jobs = 32 # number of cores
+    n_jobs = 16 # number of cores
     p = Pool(n_jobs)
     p.map(extract_one, ps)
 
@@ -82,10 +83,10 @@ def extract_one(p):
     from datetime import timedelta
     month = timedelta(days=365.25/12.)
     fm.n_jobs = 1
-    for te in fm.data.tes:
+    for yr in list(range(fm.data.ti.year, fm.data.tf.year+1)):
         try:
-            ti = np.max([fm.data.ti,te-2*month])
-            tf = np.min([fm.data.tf,te+month])
+            ti = np.max([datetime(yr,1,1,0,0,0),fm.data.ti+fm.dtw])
+            tf = np.min([datetime(yr+1,1,1,0,0,0)-fm.dt,fm.data.tf])
             fm._load_data(ti,tf)
         except:
             print('errored on: ', w, o, d, s)
