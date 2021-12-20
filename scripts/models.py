@@ -24,32 +24,32 @@ FEATURE_DIR = r'U:\EruptionForecasting\eruptions\features'
 DATA_DIR = r'U:\EruptionForecasting\eruptions\data'
 # FEATURE_DIR = r'/media/eruption_forecasting/eruptions/features'
 # DATA_DIR = r'/media/eruption_forecasting/eruptions/data'
+TI = datetimeify('2011-01-03')
+TF = datetimeify('2020-01-01')
 
 def evaluation():
     # setup forecast model
+    root='evaluation'
     n_jobs = 8  
     data_streams = ['rsam','mf','hf','dsar']
     fm = ForecastModel(window=2., overlap=0.75, look_forward=2., data_streams=data_streams, 
-        savefile_type='pkl', station='WIZ', feature_dir=FEATURE_DIR, data_dir=DATA_DIR)   
+        savefile_type='pkl', station='WIZ', root=root, feature_dir=FEATURE_DIR, data_dir=DATA_DIR)   
 
     # train a model with all eruptions
     drop_features = ['linear_trend_timewise','agg_linear_trend']  
-    fm.train(tf='2020-01-01', drop_features=drop_features, retrain=False, Ncl=500, n_jobs=n_jobs)        
+    fm.train(ti=TI, tf='2020-01-01', drop_features=drop_features, retrain=False, Ncl=500, n_jobs=n_jobs)        
     
-    # test the model by constructing a hires forecast for excluded eruption
-    ys = fm.hires_forecast(ti=datetimeify('2020-02-01'), tf = fm.data.df.index[-1], recalculate=False, 
-        save=r'{:s}/evaluation_hires.png'.format(fm.plotdir), 
-        n_jobs=n_jobs, root=r'benchmark_e0_hires'.format(fm.root), threshold=0.8)
+    # test the model by constructing a hires forecast for the 18-month evaluation period
+    fm.hires_forecast(ti='2020-02-01', tf='2021-08-01', recalculate=False, n_jobs=n_jobs, root=r'{:s}_hires'.format(fm.root), threshold=0.81)
 
 def reliability(root, data_streams, eruption, Ncl, eruption2=None):
     # setup forecast model
-    n_jobs = 8 
+    n_jobs = 6 
     root = '{:s}_e{:d}'.format(root, eruption)
     if eruption2 is not None:
         root += '_p{:d}'.format(eruption2)
     fm = ForecastModel(window=2., overlap=0.75, look_forward=2., data_streams=data_streams,
-        root=root, savefile_type='pkl', station='WIZ',
-        feature_dir=FEATURE_DIR, data_dir=DATA_DIR)   
+        root=root, savefile_type='pkl', station='WIZ', feature_dir=FEATURE_DIR, data_dir=DATA_DIR)   
 
     # train-test split on five eruptions to compute model confidence of an eruption
         # remove duplicate linear features (because correlated), unhelpful fourier compoents
@@ -66,22 +66,21 @@ def reliability(root, data_streams, eruption, Ncl, eruption2=None):
     if eruption2 is not None:
         te = fm.data.tes[eruption2-1]
         exclude_dates.append([te-_MONTH, te+_MONTH])
-    fm.train(drop_features=drop_features, retrain=True, Ncl=Ncl, n_jobs=n_jobs, exclude_dates=exclude_dates)        
+    fm.train(TI, TF, drop_features=drop_features, retrain=True, Ncl=Ncl, n_jobs=n_jobs, exclude_dates=exclude_dates)        
     
     # test the model by constructing a hires forecast for excluded eruption
     tf = te+_MONTH/28.
-    if eruption == 3:
+    if eruption==3:
         tf = te+_MONTH/28.*15
-    ys = fm.hires_forecast(ti=te-2*fm.dtw-fm.dtf, tf=tf, recalculate=True, 
-        save=r'{:s}/hires.png'.format(fm.plotdir), 
-        n_jobs=n_jobs, root=r'{:s}_hires'.format(fm.root), threshold=1.0)
+    fm.hires_forecast(ti=te-2*fm.dtw-fm.dtf, tf=tf, recalculate=True, n_jobs=n_jobs, root=r'{:s}_hires'.format(fm.root), threshold=1.0)
 
 def discriminability(root, data_streams, Ncl, eruption=None):
     # setup forecast model
-    n_jobs =16 
-    root = '{:s}_e0'.format(root)
+    n_jobs=6
     if eruption is not None:
-        root += '{:s}_e{:d}_p0'.format(root, eruption)
+        root = '{:s}_e{:d}_p0'.format(root, eruption)
+    else:
+        root = '{:s}_e0'.format(root)
     fm = ForecastModel(window=2., overlap=0.75, look_forward=2., data_streams=data_streams,
         root=root, savefile_type='pkl', station='WIZ',
         feature_dir=FEATURE_DIR, data_dir=DATA_DIR, ti=datetimeify('2011-01-01'))   
@@ -99,11 +98,10 @@ def discriminability(root, data_streams, Ncl, eruption=None):
     if eruption is not None:
         te = fm.data.tes[eruption-1]
         exclude_dates = [[te-_MONTH, te+_MONTH]]
-    fm.train(drop_features=drop_features, retrain=False, Ncl=Ncl, n_jobs=n_jobs, exclude_dates=exclude_dates)        
+    fm.train(TI, TF, drop_features=drop_features, retrain=True, Ncl=Ncl, n_jobs=n_jobs, exclude_dates=exclude_dates)        
     
     # forecast over whole dataset
-    ys = fm.hires_forecast(ti=fm.ti_train, tf=fm.tf_train, recalculate=True, 
-        n_jobs=n_jobs, root=r'{:s}_hires'.format(fm.root), threshold=1.0)    
+    fm.hires_forecast(TI, TF, recalculate=True, n_jobs=n_jobs, root=r'{:s}_hires'.format(fm.root), threshold=1.0)    
 
 def model(root, data_streams, Ncl=100):
     # assess reliability by cross validation on five eruptions
@@ -115,15 +113,13 @@ def model(root, data_streams, Ncl=100):
 
 def calibration(root, data_streams, Ncl=100):
     # create sub-models for probability calibration
-    for eruption in range(1,6)[::-1]:
-        print(eruption)
-        discriminability(root, data_streams, Ncl, eruption)
-        continue
-        for eruption2 in range(1,6):
-            if eruption == eruption2:
+    for eruption_j in range(1,6)[::-1]:
+        discriminability(root, data_streams, Ncl, eruption_j)
+        for eruption_i in range(1,6):
+            if eruption_j == eruption_i:
                 continue
-            print(eruption,eruption2)
-            reliability(root, data_streams, eruption, Ncl, eruption2)
+            reliability(root, data_streams, eruption_j, Ncl, eruption_i)
+        break
 
 def main():
     # # update data
@@ -131,7 +127,7 @@ def main():
     # td.update()
 
     # # model 0: evaluation of operational forecaster over 18 months
-    #evaluation()
+    # evaluation()
     # data_streams = ['zsc2_rsamF','zsc2_mfF','zsc2_hfF','zsc2_dsarF']
     # model(root='transformed2',data_streams=data_streams, Ncl=500)
 
