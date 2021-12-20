@@ -4,6 +4,7 @@ from whakaari import TremorData, ForecastModel, load_dataframe, datetimeify
 from datetime import timedelta, datetime
 from matplotlib import pyplot as plt
 import numpy as np
+from glob import glob
 
 # tsfresh and sklearn dump a lot of warnings - these are switched off below, but should be
 # switched back on when debugging
@@ -33,22 +34,26 @@ def extract_all():
         'diff_zsc2_rmarF','log_zsc2_vlfF','log_zsc2_lfF','log_zsc2_vlarF','log_zsc2_lrarF','log_zsc2_rmarF']
     #ds = ['log_zsc2_rsamF', 'zsc2_hfF']
     ## stations
-    ss = ['KRVZ','FWVZ','WIZ','PVV','BELO','OKWR','VNSS','SSLW','REF']
-    ss = ['VNSS']
+    rs = ['rsam','mf','hf','vlf','lf','dsar','vlar','lrar','rmar']
+    ds = ['zsc2_'+r+'F' for r in rs]
+    ss = ['KRVZ','FWVZ','WIZ','PVV','BELO','OKWR','VNSS','SSLW','REF','VNSS','MEA01','GOD','TBTN','ONTA']
+    #ss = ['VNSS']
     #ss = ['PV6']
     ## window sizes (days)
-    ws = [2.] #, 14., 90., 365.]
+    ws = [2.,14] #, 14., 90., 365.]
 
     ## Run parallelization 
     ps = []
     for s in ss:
         for d in ds:
             for w in ws:
-                extract_one([w,s,d])
-                #ps.append([w,s,d])
-    #n_jobs = 32 # number of cores
-    #p = Pool(n_jobs)
-    #p.map(extract_one, ps)
+                #extract_one([w,s,d])
+                ps.append([w,s,d])
+    for fl in glob('*.err'):
+        os.remove(fl)
+    n_jobs = 32 # number of cores
+    p = Pool(n_jobs)
+    p.map(extract_one, ps)
 
 def extract_vulcano():
     fm = ForecastModel(window=2., overlap=1., station='AUS', look_forward=2., data_streams=['zsc2_dsarF'],
@@ -73,14 +78,20 @@ def extract_one(p):
     #fm = ForecastModel(window=w, overlap=1., station = s,
     #    look_forward=2., data_streams=[d], feature_dir='/media/eruption_forecasting/eruptions/features/', savefile_type='pkl') 
     fm = ForecastModel(window=w, overlap=o, station = s,
-        look_forward=2., data_streams=[d], feature_dir='/media/eruption_forecasting/eruptions/features/', savefile_type='pkl')
+        look_forward=2., data_streams=[d], feature_dir='/media/eruption_forecasting/eruptions/features/', savefile_type='pkl',data_dir='/media/eruption_forecasting/eruptions/data/')
     from datetime import timedelta
     month = timedelta(days=365.25/12.)
+    fm.n_jobs = 1
     for te in fm.data.tes:
         try:
-            fm._load_data(te-2*month,te+month, None)
+            ti = np.max([fm.data.ti,te-2*month])
+            tf = np.min([fm.data.tf,te+month])
+            fm._load_data(ti,tf)
         except:
-            pass
+            print('errored on: ', w, o, d, s)
+            with open('{:s}_{:3.2f}_{:s}.err'.format(s,w,d),'w') as fp:
+                fp.write(str(traceback.format_exc())+'\n')
+                fp.write(str(sys.exc_info()[0]))
 
 def download_all():
     from datetime import timedelta
@@ -172,7 +183,7 @@ def check_ratios():
 if __name__ == "__main__":
     #forecast_dec2019()
     #forecast_test()
-    download_all()
+    #download_all()
     #check_ratios()
-    # extract_all()
+    extract_all()
     

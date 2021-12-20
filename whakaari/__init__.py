@@ -1058,7 +1058,10 @@ class ForecastModel(object):
         else:
             # drop features if relevant
             _ = [cfp.pop(df) for df in self.drop_features if df in list(cfp.keys())]
-        kw = {'column_id':'id', 'n_jobs':self.n_jobs,
+        nj = self.n_jobs
+        if nj == 1:
+            nj = 0
+        kw = {'column_id':'id', 'n_jobs':nj,
             'default_fc_parameters':cfp, 'impute_function':impute}
         # construct_windows/extract_features for subsets
         df, wd = self._construct_windows(Nw, ti, ds, indx = indx)
