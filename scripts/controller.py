@@ -693,7 +693,7 @@ def _update_vulcano():
     ax1.plot(rsam.index, rsam.values*1.e-3,'k-', lw=0.5, label='RSAM')
     ax1_ = ax1.twinx()
     ax1_.plot(dsar.index, dsar.values, 'b-', lw=0.5)
-    ax1.plot([],[],'b-',label='DSAR')
+    ax1.plot([],[],'b-',label='DSAR', lw=0.5)
     tks, tls = get_ticks(ti_e1, tf_e1, override=1)
     ax1.set_ylabel('RSAM [$\mu$m s$^{-1}$]')
     ax1_.set_ylabel('DSAR [-]')    
@@ -729,23 +729,48 @@ def _update_vulcano():
     ax2_.set_ylabel('zsc_DSAR change quantiles')
     ax_2.set_ylabel('HF 75-min harmonic')
     
-    ax3.set_title('1-month correlations')
-    ax3.plot(cc.index, cc[fts[0]].values, 'b--', label='zsc_DSAR 2-day median')
-    ax3.axhline(0.6, color='b', linestyle=':', label='concern threshold')
-    ax3_ = ax3.twinx()
-    ax3_.plot(cc.index, cc[fts[1]].values, 'g--')
-    ax3_.axhline(0.29, color='g', linestyle=':', label='concern threshold')
-    ax3.plot([],[],'g--', label='zsc_DSAR change quantiles')
-    ax3.plot([],[],'g:', label='concern threshold')
-    ax3.set_ylabel('zsc_DSAR median: Whakaari correlation')
-    ax3_.set_ylabel('zsc_DSAR change quantiles: Ruapehu correlation')
-    ax3.legend()
-    tks2, tls2 = get_ticks(cc.index[0], cc.index[-1])
-    ax3.set_xticks(tks2)
-    ax3.set_xticklabels(tls2)
-    ax3_.set_xticks(tks2)
-    ax3_.set_xticklabels(tls2)
+    if False:
+        ax3.set_title('1-month correlations')
+        ax3.plot(cc.index, cc[fts[0]].values, 'b--', label='zsc_DSAR 2-day median')
+        ax3.axhline(0.6, color='b', linestyle=':', label='concern threshold')
+        ax3_ = ax3.twinx()
+        ax3_.plot(cc.index, cc[fts[1]].values, 'g--')
+        ax3_.axhline(0.29, color='g', linestyle=':', label='concern threshold')
+        ax3.plot([],[],'g--', label='zsc_DSAR change quantiles')
+        ax3.plot([],[],'g:', label='concern threshold')
+        ax3.set_ylabel('zsc_DSAR median: Whakaari correlation')
+        ax3_.set_ylabel('zsc_DSAR change quantiles: Ruapehu correlation')
+        ax3.legend()
+        tks2, tls2 = get_ticks(cc.index[0], cc.index[-1])
+        ax3.set_xticks(tks2)
+        ax3.set_xticklabels(tls2)
+        ax3_.set_xticks(tks2)
+        ax3_.set_xticklabels(tls2)
 
+    else:
+        td0 = TremorData(station="ISTR")
+        try:
+            td0.update()
+        except:
+            pass
+        rsam = td0.get_data(ti_e1, tf_e1)['rsamF']
+        dsar = td0.get_data(ti_e1, tf_e1)['dsarF']
+        ax3.plot(rsam.index, rsam*1.e-3, 'k-', lw=0.5, label='RSAM')
+        ax3.plot([],[],'b-',lw=0.5,label='DSAR')
+        ax3_=ax3.twinx()
+        ax3_.plot(dsar.index, dsar, 'b-', lw=0.5)
+        #tks2, tls2 = get_ticks(rsam.index[0], rsam.index[-1])
+        ax3.set_ylabel('RSAM [$\mu$m s$^{-1}$]')
+        ax3_.set_ylabel('DSAR [-]')    
+        ax3.set_title('correlations - last updated {:s} (UTC)'.format(dsar.index[-1].strftime('%H:%M, %d %b %Y')))
+        #ax3.legend()
+        ax3.set_xticks(tks)
+        ax3.set_xticklabels(tls)
+        ax3_.set_xticks(tks)
+        ax3_.set_xticklabels(tls)
+        ax3.set_xlim([rsam.index[0], rsam.index[-1]])
+        ax3_.set_xlim([rsam.index[0], rsam.index[-1]])
+    
     ft1 = np.loadtxt('./prec_WIZ_5_zsc2_dsarF__median.csv',skiprows=1,delimiter=',', usecols=1)
     ft2 = np.loadtxt('prec_FWVZ_2_zsc2_dsarF__change_quantiles__f_agg_-var-__isabs_False__qh_0.6__ql_0.4.csv',skiprows=1,delimiter=',', usecols=1)
 
@@ -761,7 +786,7 @@ def _update_vulcano():
     ax4.set_ylabel('zsc_DSAR 2-day median: Whakaari 2019')
     ax4_.set_ylabel('zsc_DSAR change quantiles: Ruapehu 2007')
     
-    for ax in [ax1,ax2]:
+    for ax in [ax1,ax2,ax3]:
         ax.legend()
         for tick in ax.get_xticklabels():
             tick.set_rotation(90)
@@ -832,13 +857,13 @@ def _update_ruapehu():
     ax1.set_ylabel('RSAM [$\mu$m s$^{-1}$]')
     ax1_.set_ylabel('DSAR [-]')    
     ax1.set_title('correlations - last updated {:s} (UTC)'.format(tf_e1.strftime('%H:%M, %d %b %Y')))
-    # ax1.set_xticks(tks)
-    # ax1.set_xticklabels(tls)
+    ax1.set_xticks(tks)
+    ax1.set_xticklabels([])
     ax1.set_xlim([rsam.index[0], rsam.index[-1]])
     ax1_.set_xlim([rsam.index[0], rsam.index[-1]])
     ax1.legend()
-    ax1.set_xticks(tks)
-    ax1.set_xticklabels([])
+    #ax1.set_xticks(tks)
+    #ax1.set_xticklabels([])
     
     ax2.set_title('Current Ruapehu feature time series')
     ax2.plot(ft_e1[0].index, np.log10(ft_e1[0][fts2[0]].values), 'b-', lw=0.5, label='zsc_DSAR 2-day median')

@@ -1918,7 +1918,7 @@ def get_data_for_day(i,t0,station):
     t0 = UTCDateTime(t0)
 
     # open clients
-    if station.startswith('IV'):
+    if station.startswith('IV') or station.startswith('IS'):
         client = FDSNClient('https://webservices.ingv.it')
         # client_nrt = FDSNClient('https://webservices.ingv.it')
         client_nrt=client
@@ -1940,7 +1940,7 @@ def get_data_for_day(i,t0,station):
         pass
 
     try:
-        if station.startswith('IV'):
+        if station.startswith('IV') or station.startswith('IS'):
             network = 'IV'
             location = '*'            
             WIZ = client.get_waveforms(network,station,location, "HHZ", t0+i*daysec, t0 + (i+1)*daysec)
